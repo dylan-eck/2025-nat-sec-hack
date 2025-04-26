@@ -23,18 +23,27 @@ function hexToRgb(hex: string): [number, number, number] {
   return match.map((x) => parseInt(x, 16)) as [number, number, number];
 }
 
+import { useState } from "react";
+
 export default function App() {
+  const [selectedZip, setSelectedZip] = useState<number | null>(null);
+
   const polyLayer = new PolygonLayer<ZipCode>({
     id: "PolygonLayer",
     data: "https://raw.githubusercontent.com/visgl/deck.gl-data/master/website/sf-zipcodes.json",
-
     getPolygon: (d: ZipCode) => d.contour,
     getElevation: (d: ZipCode) => d.population / d.area / 10,
-    getFillColor: (d: ZipCode) => [d.population / d.area / 60, 140, 0],
+    getFillColor: (d: ZipCode) =>
+      d.zipcode === selectedZip
+        ? [255, 0, 0, 200] // Highlight color for selected
+        : [d.population / d.area / 60, 140, 0],
     getLineColor: [255, 255, 255],
     getLineWidth: 20,
     lineWidthMinPixels: 1,
     pickable: true,
+    updateTriggers: {
+      getFillColor: [selectedZip],
+    },
   });
 
   const pathLayer = new PathLayer<BartLine>({
@@ -57,6 +66,13 @@ export default function App() {
       }}
       controller={true}
       layers={[polyLayer, pathLayer]}
+      onClick={({ object }) => {
+        if (object && "zipcode" in object) {
+          setSelectedZip(
+            selectedZip === object.zipcode ? null : object.zipcode
+          );
+        }
+      }}
     >
       <Map
         mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN}
