@@ -29,8 +29,8 @@ export default function App() {
     type: "FeatureCollection",
     features: [],
   });
-  // State specifically for drawing the *next* set of safe zones
-  const [currentSafeZoneFeatures, setCurrentSafeZoneFeatures] = useState<
+  // State for committed safe zones (persist like exclusion zones)
+  const [committedSafeZoneFeatures, setCommittedSafeZoneFeatures] = useState<
     FeatureCollection<Polygon>
   >({
     type: "FeatureCollection",
@@ -97,40 +97,39 @@ export default function App() {
 
   // --- Action Handlers ---
 
-  // Function to initiate finding path to the currently drawn safe zones
-  const handleFindPathToSafeZone = useCallback(async () => {
-    if (!currentStartPoint || currentSafeZoneFeatures.features.length === 0) {
-      alert("Please select a start point and draw at least one safe zone polygon.");
+  // Function to initiate finding path using the current start point and committed zones
+  const handleFindPath = useCallback(async () => {
+    if (!currentStartPoint) {
+      alert("Please select a start point.");
       return;
     }
 
     setIsLoadingPath(true);
-    const currentExclusionZones = drawnExclusionFeatures.features.filter(
+    const exclusionZones = drawnExclusionFeatures.features.filter(
       (f): f is Feature<Polygon> => f.geometry.type === "Polygon"
     );
-    const currentSafeZonesToUse = currentSafeZoneFeatures.features.filter(
+    const safeZones = committedSafeZoneFeatures.features.filter(
       (f): f is Feature<Polygon> => f.geometry.type === "Polygon"
     );
 
     const newId = nextRequestId;
     setNextRequestId(prevId => prevId + 1);
 
-    // Add a placeholder request (path will be filled by the fetch)
     const newRequest: SafeZonePathRequest = {
       id: newId,
       start: currentStartPoint,
-      safeZones: currentSafeZonesToUse, // Store the safe zones used
-      polygons: currentExclusionZones, // Store the exclusion zones used
+      safeZones: safeZones,
+      polygons: exclusionZones,
       path: null,
     };
     setPathRequests(prevRequests => [...prevRequests, newRequest]);
 
     try {
-      console.log(`Fetching path for request ${newId} to safe zones:`, currentStartPoint, currentSafeZonesToUse);
+      console.log(`Fetching path for request ${newId}: Start=${currentStartPoint}, SafeZones=${safeZones.length}, ExclusionZones=${exclusionZones.length}`);
       const calculatedPath = await fetchShortestPathToSafeZone(
         currentStartPoint,
-        currentSafeZonesToUse,
-        currentExclusionZones
+        safeZones,
+        exclusionZones
       );
 
       setPathRequests(currentRequests =>
@@ -140,39 +139,32 @@ export default function App() {
       );
 
       if (!calculatedPath) {
-         alert(`Failed to find path for request ${newId}. ${(calculatedPath === null ? '(No path found)' : '')}`); // More specific message
+         alert(`Failed to find path for request ${newId}. ${(calculatedPath === null ? '(No path found)' : '')}`);
       }
 
-      // Reset for next request AFTER fetch completes
       setCurrentStartPoint(null);
-      setCurrentSafeZoneFeatures({ type: "FeatureCollection", features: [] }); // Clear current drawing
-      setInteractionMode("selectStartPoint"); // Go back to selecting points
 
     } catch (error) {
       console.error(`Error fetching path for request ${newId}:`, error);
       alert(
         `Error fetching path: ${error instanceof Error ? error.message : String(error)}`
       );
-      // Update request state to indicate failure clearly
       setPathRequests(currentRequests =>
         currentRequests.map(req =>
-          req.id === newId ? { ...req, path: null } : req // Keep request, path is null
+          req.id === newId ? { ...req, path: null } : req
         )
       );
-       // Reset for next request even on error
        setCurrentStartPoint(null);
-       setCurrentSafeZoneFeatures({ type: "FeatureCollection", features: [] });
-       setInteractionMode("selectStartPoint");
     } finally {
       setIsLoadingPath(false);
     }
   }, [
     currentStartPoint,
-    currentSafeZoneFeatures,
+    committedSafeZoneFeatures,
     drawnExclusionFeatures,
     fetchShortestPathToSafeZone,
     nextRequestId,
-    setPathRequests // Ensure state setter is a dependency
+    setPathRequests
   ]);
 
 
@@ -180,7 +172,7 @@ export default function App() {
     setPathRequests([]);
     setCurrentStartPoint(null);
     setDrawnExclusionFeatures({ type: "FeatureCollection", features: [] });
-    setCurrentSafeZoneFeatures({ type: "FeatureCollection", features: [] });
+    setCommittedSafeZoneFeatures({ type: "FeatureCollection", features: [] });
     setNextRequestId(0);
     setIsLoadingPath(false);
     setInteractionMode("selectStartPoint");
@@ -195,7 +187,6 @@ export default function App() {
         return;
       }
 
-       // Ignore clicks on existing editable layers
        if (layer?.id?.startsWith("editable-")) {
          console.log("Map click ignored: Clicked on an editable layer.");
          return;
@@ -203,22 +194,17 @@ export default function App() {
 
       if (!coordinate) return;
 
-      const [longitude, latitude] = coordinate;
-      const clickedPoint: Position = [longitude, latitude];
+      const clickedPoint: Position = coordinate;
 
-      // Only set the start point in this mode
       console.log("Setting start point:", clickedPoint);
       setCurrentStartPoint(clickedPoint);
-      // Automatically switch to drawing safe zones after selecting start point
-      setInteractionMode("drawSafeZone");
 
     },
-    [interactionMode, isLoadingPath, setInteractionMode] // Removed dependencies related to end point
+    [interactionMode, isLoadingPath]
   );
 
   // --- Layer Definitions ---
    const layers = [
-    // Layer for drawing/editing EXCLUSION zones
     interactionMode === "drawExclusionZone" &&
       new EditableGeoJsonLayer({
         id: "editable-exclusion-geojson",
@@ -227,56 +213,42 @@ export default function App() {
         selectedFeatureIndexes: [],
         onEdit: ({ updatedData }) => setDrawnExclusionFeatures(updatedData),
         pickable: true,
-        getFillColor: [255, 0, 0, 100], // Reddish for exclusion
+        getFillColor: [255, 0, 0, 100],
         getLineColor: [255, 0, 0, 200],
         getLineWidth: 2,
       }),
-    // Layer for drawing/editing SAFE zones
     interactionMode === "drawSafeZone" &&
       new EditableGeoJsonLayer({
         id: "editable-safezone-geojson",
-        data: currentSafeZoneFeatures, // Use the specific state for current safe zones
+        data: committedSafeZoneFeatures,
         mode: new DrawPolygonMode(),
         selectedFeatureIndexes: [],
-        onEdit: ({ updatedData }) => setCurrentSafeZoneFeatures(updatedData),
+        onEdit: ({ updatedData }) => setCommittedSafeZoneFeatures(updatedData),
         pickable: true,
-        getFillColor: [0, 255, 0, 100], // Greenish for safe zones
+        getFillColor: [0, 255, 0, 100],
         getLineColor: [0, 255, 0, 200],
         getLineWidth: 2,
       }),
-    // Display layer for committed EXCLUSION zones (when not editing them)
     interactionMode !== "drawExclusionZone" &&
       drawnExclusionFeatures.features.length > 0 &&
       new GeoJsonLayer({
         id: "drawn-exclusion-polygons-display",
         data: drawnExclusionFeatures,
-        getFillColor: [255, 0, 0, 50], // Lighter Red
+        getFillColor: [255, 0, 0, 50],
         getLineColor: [255, 0, 0, 150],
         getLineWidth: 1,
         pickable: false,
       }),
-     // Display layer for currently drawing SAFE zones (when not editing them)
-     interactionMode !== "drawSafeZone" &&
-      currentSafeZoneFeatures.features.length > 0 &&
+    interactionMode !== "drawSafeZone" &&
+      committedSafeZoneFeatures.features.length > 0 &&
       new GeoJsonLayer({
-          id: "current-safe-zones-display",
-          data: currentSafeZoneFeatures,
-          getFillColor: [0, 255, 0, 30], // Lighter Green
-          getLineColor: [0, 255, 0, 100],
-          getLineWidth: 1,
+          id: "committed-safe-zones-display",
+          data: committedSafeZoneFeatures,
+          getFillColor: [0, 128, 0, 50],
+          getLineColor: [0, 128, 0, 150],
+          getLineWidth: 1.5,
           pickable: false,
       }),
-    // Display layer for committed SAFE zones from previous requests
-     pathRequests.length > 0 &&
-      new GeoJsonLayer({
-        id: "committed-safe-zones-display",
-        data: pathRequests.flatMap(req => req.safeZones.map(zone => ({...zone, properties: {...zone.properties, requestId: req.id}}))), // Flatten zones from all requests
-        getFillColor: [0, 128, 0, 50], // Darker Green fill
-        getLineColor: [0, 128, 0, 150], // Darker Green line
-        getLineWidth: 1.5,
-        pickable: false,
-      }),
-    // Base map roads
     new GeoJsonLayer({
       id: "region-roads-layer",
       data: "/road_data.geojson",
@@ -285,7 +257,6 @@ export default function App() {
       lineWidthMinPixels: 0.5,
       pickable: false,
     }),
-    // Layer for start points (current and from requests)
     new ScatterplotLayer({
       id: "start-points-layer",
       data: [
@@ -299,19 +270,18 @@ export default function App() {
       ] as { position: Position; type: "currentStart" | "committedStart" }[],
       getPosition: (d: { position: Position; type: "currentStart" | "committedStart" }) => d.position,
       getColor: (d: { position: Position; type: "currentStart" | "committedStart" }) => {
-        if (d.type === "currentStart") return [255, 255, 0, 255]; // Yellow for current selection
-        return [0, 255, 0, 255]; // Green for committed start points
+        if (d.type === "currentStart") return [255, 255, 0, 255];
+        return [0, 255, 0, 255];
       },
       getSize: 100,
       radiusMinPixels: 6,
     }),
-    // Layer for calculated paths
     pathRequests.length > 0 &&
       new PathLayer({
         id: "calculated-paths-layer",
-        data: pathRequests.filter(req => req.path), // Only include requests with a calculated path
+        data: pathRequests.filter(req => req.path),
         getPath: (d: SafeZonePathRequest) => d.path!,
-        getColor: [0, 0, 255, 200], // Blue for paths
+        getColor: [0, 0, 255, 200],
         getWidth: 5,
         widthMinPixels: 3,
       }),
@@ -321,7 +291,6 @@ export default function App() {
   // --- Render ---
   return (
     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
-      {/* Control Panel UI */}
       <div
          style={{
             position: "absolute",
@@ -332,7 +301,7 @@ export default function App() {
             padding: "clamp(8px, 1.5vw, 16px)",
             borderRadius: "12px",
             display: "flex",
-            flexDirection: windowDimensions.width < 768 ? "column" : "row", // Adjust breakpoint maybe
+            flexDirection: windowDimensions.width < 768 ? "column" : "row",
             gap: "clamp(8px, 0.8vw, 12px)",
             boxShadow: "0 4px 20px rgba(0, 0, 0, 0.08)",
             backdropFilter: "blur(8px)",
@@ -340,7 +309,6 @@ export default function App() {
             transition: "all 0.2s ease-in-out",
         }}
       >
-        {/* Mode Buttons */}
          <button
             onClick={() => setInteractionMode("selectStartPoint")}
             disabled={isLoadingPath || interactionMode === "selectStartPoint"}
@@ -363,25 +331,23 @@ export default function App() {
             Draw Exclusion Zone
          </button>
 
-         {/* Action Button */}
           <button
-            onClick={handleFindPathToSafeZone}
-            disabled={isLoadingPath || !currentStartPoint || currentSafeZoneFeatures.features.length === 0}
+            onClick={handleFindPath}
+            disabled={isLoadingPath || !currentStartPoint}
             style={{
-                ...getButtonStyle(false, isLoadingPath || !currentStartPoint || currentSafeZoneFeatures.features.length === 0),
-                background: (!isLoadingPath && currentStartPoint && currentSafeZoneFeatures.features.length > 0)
-                    ? "linear-gradient(135deg, #10B981, #059669)" // Green gradient when active
-                    : "#F3F4F6", // Default greyed out
-                color: (!isLoadingPath && currentStartPoint && currentSafeZoneFeatures.features.length > 0) ? "white" : "#6B7280", // White text when active
-                 boxShadow: (!isLoadingPath && currentStartPoint && currentSafeZoneFeatures.features.length > 0)
+                ...getButtonStyle(false, isLoadingPath || !currentStartPoint),
+                background: (!isLoadingPath && currentStartPoint)
+                    ? "linear-gradient(135deg, #10B981, #059669)"
+                    : "#F3F4F6",
+                color: (!isLoadingPath && currentStartPoint) ? "white" : "#6B7280",
+                 boxShadow: (!isLoadingPath && currentStartPoint)
                     ? "0 2px 8px rgba(16, 185, 129, 0.4)"
                     : "0 1px 2px rgba(0, 0, 0, 0.05)",
             }}
         >
-            Find Path to Safe Zone
+            Find Path
           </button>
 
-          {/* Reset Button */}
           <button
             onClick={resetSelection}
             disabled={isLoadingPath}
@@ -405,7 +371,6 @@ export default function App() {
                 Reset
             </button>
 
-          {/* Loading Indicator */}
           {isLoadingPath && (
               <div style={{
                 display: "flex",
@@ -413,7 +378,7 @@ export default function App() {
                 color: "#3B82F6",
                 fontWeight: 500,
                 fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
-                marginLeft: "4px", // Adjusted spacing if needed
+                marginLeft: "4px",
               }}>
                 <div style={{
                   width: "16px",
@@ -429,26 +394,24 @@ export default function App() {
           )}
       </div>
 
-      {/* DeckGL Map */}
       <DeckGL
         initialViewState={{
-          longitude: -122.4, // Keep initial view state
+          longitude: -122.4,
           latitude: 37.74,
           zoom: 11,
           maxZoom: 20,
           bearing: 0,
         }}
         controller={true}
-        layers={layers} // Use the dynamic layers array
+        layers={layers}
         onClick={handleMapClick}
       >
         <Map
           mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN}
           mapStyle="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
-          doubleClickZoom={!interactionMode.startsWith("draw")} // Disable doubleClickZoom when drawing
+          doubleClickZoom={!interactionMode.startsWith("draw")}
         />
       </DeckGL>
-      {/* Keyframes for spinner */}
       <style jsx>{`
               @keyframes spin {
                 to { transform: rotate(360deg); }
@@ -458,7 +421,6 @@ export default function App() {
   );
 }
 
-// Helper function for button styling to reduce repetition
 function getButtonStyle(isActive: boolean, isDisabled: boolean): React.CSSProperties {
     const activeBg = "linear-gradient(135deg, #3B82F6, #2563EB)";
     const inactiveBg = "white";
@@ -483,6 +445,6 @@ function getButtonStyle(isActive: boolean, isDisabled: boolean): React.CSSProper
       overflow: "hidden",
       textOverflow: "ellipsis",
       minWidth: "120px",
-      opacity: isDisabled && !isActive ? 0.6 : 1, // Dim if disabled but not the active mode itself
+      opacity: isDisabled && !isActive ? 0.6 : 1,
     };
 }
