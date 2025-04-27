@@ -1,4 +1,0 @@
-Flask
-requests
-shapely
-python-dotenv 
