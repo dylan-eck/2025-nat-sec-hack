@@ -10,9 +10,12 @@ from pydantic import BaseModel, Field
 from typing import List, Tuple
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+import json
+import os
 
 # --- Configuration ---
 PICKLE_FILENAME = '../../public/road_graph_data.pkl' # Use the cropped graph
+SAVED_ZONES_FILENAME = 'saved_zones.json' # File to store zones
 SOURCE_CRS = "EPSG:4326"  # WGS84 (longitude, latitude)
 TARGET_CRS = "EPSG:32610"  # Projected CRS used for graph building (UTM Zone 10N)
 # --- End Configuration ---
@@ -117,33 +120,36 @@ class PolygonInput(BaseModel):
 
 class PathRequest(BaseModel):
     start_point: PointInput
-    end_point: PointInput
+    safe_zones: List[PolygonInput] = Field(..., description="List of polygons defining target safe zones")
     polygons: List[PolygonInput] = Field([], description="List of polygons defining inaccessible areas")
 
 class PathResponse(BaseModel):
     path_found: bool
-    path_coordinates: List[Tuple[float, float]] = Field(None, description="List of [longitude, latitude] tuples for the path, if found")
+    path: List[Tuple[float, float]] = Field(None, description="List of [longitude, latitude] tuples for the path, if found")
     message: str
+
+class ZonesData(BaseModel):
+    exclusion: List[PolygonInput]
+    safe: List[PolygonInput]
 
 # --- API Endpoint ---
 @app.post("/find_path", response_model=PathResponse)
 async def find_path(request: PathRequest):
     """
-    Finds the shortest path between a start and end point, avoiding nodes within specified polygons.
+    Finds the shortest path between a start point and the nearest point within any of the specified safe zone polygons,
+    avoiding nodes within specified exclusion polygons.
     Coordinates are expected in WGS84 (longitude, latitude).
     """
     if G_base is None or node_points_base is None or transformer_to_metric is None or transformer_to_wgs84 is None:
         raise HTTPException(status_code=503, detail="Server error: Graph data not loaded.")
 
     request_start_time = time.perf_counter()
-    print("Received path request...")
+    print("Received path request (to safe zone)...")
 
     try:
-        # 1. Transform start/end points to metric CRS
+        # 1. Transform start point to metric CRS
         start_lon, start_lat = request.start_point.longitude, request.start_point.latitude
-        end_lon, end_lat = request.end_point.longitude, request.end_point.latitude
         start_proj_x, start_proj_y = transformer_to_metric.transform(start_lon, start_lat)
-        end_proj_x, end_proj_y = transformer_to_metric.transform(end_lon, end_lat)
 
         # 2. Create a temporary copy of the graph for modification
         G_temp = G_base.copy()
@@ -154,40 +160,34 @@ async def find_path(request: PathRequest):
             print(f"Processing {len(request.polygons)} exclusion polygons...")
             for poly_input in request.polygons:
                 if len(poly_input.coordinates) < 3:
-                    print(f"Skipping invalid polygon with < 3 vertices: {poly_input.coordinates}")
+                    print(f"Skipping invalid exclusion polygon with < 3 vertices: {poly_input.coordinates}")
                     continue
-
-                # Transform polygon vertices to metric CRS
                 poly_coords_metric = [transformer_to_metric.transform(lon, lat) for lon, lat in poly_input.coordinates]
                 exclusion_poly = Polygon(poly_coords_metric)
-
-                # Find nodes within this polygon
-                for node, node_point in node_points_base.items(): # Check against base node points
+                for node, node_point in node_points_base.items():
                     if node in G_temp and exclusion_poly.contains(node_point):
                         nodes_to_remove.add(node)
 
             if nodes_to_remove:
-                print(f"Removing {len(nodes_to_remove)} nodes based on polygons...")
+                print(f"Removing {len(nodes_to_remove)} nodes based on exclusion polygons...")
                 G_temp.remove_nodes_from(list(nodes_to_remove))
             else:
-                print("No nodes found within specified polygons.")
+                print("No nodes found within specified exclusion polygons.")
 
-        # 4. Find nearest nodes in the (potentially modified) temporary graph
+        # 4. Find nearest node to the start point in the accessible graph
         start_node = get_nearest_node_api(G_temp, (start_proj_x, start_proj_y), node_points_base)
-        end_node = get_nearest_node_api(G_temp, (end_proj_x, end_proj_y), node_points_base)
 
-        if start_node is None or end_node is None:
-            msg = "Could not find nearest start or end node in the accessible graph area."
+        if start_node is None:
+            msg = f"Could not find a starting node near {request.start_point.longitude}, {request.start_point.latitude} in the accessible graph."
             print(msg)
             return PathResponse(path_found=False, message=msg)
 
-        if start_node == end_node:
-             msg = "Start and end nodes are the same."
-             print(msg)
-             # Return a path with just the single point
-             start_node_lon, start_node_lat = transformer_to_wgs84.transform(start_node[0], start_node[1])
-             return PathResponse(path_found=True, path_coordinates=[(start_node_lon, start_node_lat)], message=msg)
+        # --- MODIFIED: Find shortest path to the NEAREST safe zone (based on centroid) --- 
+        print("Finding path to the nearest safe zone (via centroid node)...")
+        if not request.safe_zones:
+             raise HTTPException(status_code=400, detail="At least one safe zone must be provided.")
 
+<<<<<<< HEAD
 <<<<<<< Updated upstream
         # 5. Calculate shortest path
         print(f"Finding path between {start_node} and {end_node}...")
@@ -198,6 +198,8 @@ async def find_path(request: PathRequest):
         except nx.NetworkXNoPath:
             msg = f"No path found between the selected start and end points in the accessible graph."
 =======
+=======
+>>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
         shortest_path_len = float('inf')
         final_target_node = None
         processed_safe_zones = 0
@@ -273,6 +275,10 @@ async def find_path(request: PathRequest):
                 calculation_time = time.perf_counter() - request_start_time
                 msg = f"Path found to nearest safe zone in {calculation_time:.4f} seconds. Nodes: {len(path_coords_wgs84)}"
                 print(msg)
+<<<<<<< HEAD
+=======
+                print(f"DEBUG: Returning path type: {type(path_coords_wgs84)}, content: {path_coords_wgs84}") 
+>>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
                 return PathResponse(path_found=True, path=path_coords_wgs84, message=msg)
                 
             except nx.NetworkXNoPath:
@@ -287,33 +293,55 @@ async def find_path(request: PathRequest):
             # This case means no path was found from the start node to *any* safe zone centroid node
             calculation_time = time.perf_counter() - request_start_time
             msg = f"Could not find a path from the start location to any of the provided safe zones' accessible nodes. Searched {len(request.safe_zones)} zones. Time: {calculation_time:.4f}s"
+<<<<<<< HEAD
 >>>>>>> Stashed changes
+=======
+>>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
             print(msg)
             return PathResponse(path_found=False, message=msg)
-        except nx.NodeNotFound:
-             # This might happen if start/end node was removed *after* nearest node check - race condition unlikely here but possible
-             msg = "Start or end node not found in the graph (possibly removed by a polygon)."
-             print(msg)
-             return PathResponse(path_found=False, message=msg)
-
-        # 6. Transform path back to WGS84
-        path_latlon = [transformer_to_wgs84.transform(x, y) for x, y in path]
-
-        request_end_time = time.perf_counter()
-        print(f"Path calculated in {request_end_time - request_start_time:.3f} seconds.")
-
-        return PathResponse(
-            path_found=True,
-            path_coordinates=path_latlon,
-            message="Shortest path calculated successfully."
-        )
 
     except Exception as e:
-        print(f"An unexpected error occurred during path finding: {e}")
-        # Log the full traceback in a real application
+        print(f"An unexpected error occurred during path finding to safe zone: {e}")
         # import traceback
-        # print(traceback.format_exc())
+        # print(traceback.format_exc()) # Uncomment for debugging
         raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
+
+# --- API Endpoint to Save Zones ---
+@app.post("/save_zones")
+async def save_zones(zones_data: ZonesData):
+    try:
+        print(f"Saving {len(zones_data.exclusion)} exclusion zones and {len(zones_data.safe)} safe zones...")
+        # Convert Pydantic models to dict for JSON serialization
+        data_to_save = zones_data.dict()
+        with open(SAVED_ZONES_FILENAME, 'w') as f:
+            json.dump(data_to_save, f, indent=4)
+        print(f"Zones saved successfully to {SAVED_ZONES_FILENAME}")
+        return {"message": "Zones saved successfully."}
+    except Exception as e:
+        print(f"Error saving zones: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error while saving zones: {e}")
+
+# --- API Endpoint to Load Zones ---
+@app.get("/load_zones", response_model=ZonesData)
+async def load_zones():
+    try:
+        if not os.path.exists(SAVED_ZONES_FILENAME):
+            print("Saved zones file not found, returning empty lists.")
+            return ZonesData(exclusion=[], safe=[]) # Return empty structure if file doesn't exist
+
+        print(f"Loading zones from {SAVED_ZONES_FILENAME}...")
+        with open(SAVED_ZONES_FILENAME, 'r') as f:
+            loaded_data = json.load(f)
+            # Validate loaded data against the Pydantic model
+            zones = ZonesData(**loaded_data)
+            print(f"Loaded {len(zones.exclusion)} exclusion zones and {len(zones.safe)} safe zones.")
+            return zones
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON from {SAVED_ZONES_FILENAME}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error reading saved zones file: Invalid JSON format.")
+    except Exception as e:
+        print(f"Error loading zones: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error while loading zones: {e}")
 
 # --- Add entry point to run with Uvicorn (for simple execution) ---
 if __name__ == "__main__":
