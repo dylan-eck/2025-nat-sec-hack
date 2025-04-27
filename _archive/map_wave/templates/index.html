@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Safe Route Finder</title>
+    <link
+      href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css"
+      rel="stylesheet"
+    />
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.2/mapbox-gl-draw.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.2/mapbox-gl-draw.css"
+      type="text/css"
+    />
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+      header {
+        background-color: #333;
+        color: white;
+        padding: 1rem;
+        text-align: center;
+      }
+      .container {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+      .sidebar {
+        width: 300px;
+        background-color: #f5f5f5;
+        padding: 1rem;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+      }
+      .map-container {
+        flex: 1;
+        position: relative;
+      }
+      #map {
+        width: 100%;
+        height: 100%;
+      }
+      .form-group {
+        margin-bottom: 1rem;
+      }
+      label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: bold;
+      }
+      input,
+      button {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      button {
+        background-color: #4caf50;
+        color: white;
+        cursor: pointer;
+        border: none;
+        margin-top: 1rem;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      .routes-container {
+        margin-top: 1rem;
+        flex-grow: 1;
+        overflow-y: auto;
+      }
+      .route-card {
+        background-color: white;
+        border-radius: 4px;
+        padding: 0.75rem;
+        margin-bottom: 0.75rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+        display: flex;
+        flex-direction: column;
+      }
+      .route-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+      }
+      .route-title {
+        font-weight: bold;
+      }
+      .route-details {
+        font-size: 0.9rem;
+        color: #666;
+      }
+      .route-actions {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 0.5rem;
+      }
+      .route-toggle {
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+      }
+      .route-toggle input {
+        margin-right: 0.25rem;
+        width: auto;
+      }
+      .safe-route {
+        border-left: 4px solid #4caf50;
+      }
+      .unsafe-route {
+        border-left: 4px solid #f44336;
+      }
+      .info-box {
+        margin-top: 1rem;
+        padding: 0.75rem;
+        background-color: #e1f5fe;
+        border-radius: 4px;
+        font-size: 0.9rem;
+      }
+      .drawing-instructions {
+        margin-top: 1rem;
+        padding: 0.75rem;
+        background-color: #fff9c4;
+        border-radius: 4px;
+        font-size: 0.9rem;
+      }
+      .drawing-instructions h3 {
+        margin-bottom: 0.5rem;
+      }
+      .drawing-instructions ul {
+        padding-left: 1.5rem;
+      }
+      .loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 1rem 2rem;
+        border-radius: 4px;
+        display: none;
+      }
+      .global-controls {
+        margin: 1rem 0;
+        padding: 0.5rem;
+        background-color: #f0f0f0;
+        border-radius: 4px;
+      }
+      .global-controls .route-toggle {
+        display: flex;
+        align-items: center;
+      }
+      .global-controls .route-toggle input {
+        margin-right: 0.5rem;
+        width: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Safe Route Finder</h1>
+    </header>
+    <div class="container">
+      <div class="sidebar">
+        <div class="form-group">
+          <label for="start-address">Start Address</label>
+          <input
+            type="text"
+            id="start-address"
+            placeholder="Enter start address"
+          />
+        </div>
+        <div class="form-group">
+          <label for="end-address">End Address</label>
+          <input type="text" id="end-address" placeholder="Enter end address" />
+        </div>
+        <div class="drawing-instructions">
+          <h3>Drawing Danger Zones</h3>
+          <p>
+            Use the polygon tool in the top right of the map to draw areas to
+            avoid:
+          </p>
+          <ul>
+            <li>Click the polygon icon</li>
+            <li>Click on the map to place points</li>
+            <li>Complete the polygon by clicking the first point</li>
+            <li>Draw multiple zones if needed</li>
+          </ul>
+        </div>
+        <button id="find-routes-btn">Find Safe Routes</button>
+        <div class="info-box" id="routes-info">
+          Enter addresses and draw danger zones, then click "Find Safe Routes"
+        </div>
+        <div class="global-controls">
+          <label class="route-toggle">
+            <input type="checkbox" id="hide-unsafe-routes">
+            Hide All Unsafe Routes
+          </label>
+        </div>
+        <div class="routes-container" id="routes-container"></div>
+      </div>
+      <div class="map-container">
+        <div id="map"></div>
+        <div class="loading" id="loading">Finding routes...</div>
+      </div>
+    </div>
+
+    <script>
+      // Initialize the map
+      mapboxgl.accessToken = "{{ mapbox_token }}";
+      const map = new mapboxgl.Map({
+        container: "map",
+        style: "mapbox://styles/mapbox/streets-v11",
+        center: [-74.5, 40], // Default center
+        zoom: 9,
+      });
+
+      // Initialize the MapboxDraw plugin for drawing danger zones
+      const draw = new MapboxDraw({
+        displayControlsDefault: false,
+        controls: {
+          polygon: true,
+          trash: true,
+        },
+        defaultMode: "simple_select",
+        styles: [
+          // Danger zone styling
+          {
+            id: "gl-draw-polygon-fill-inactive",
+            type: "fill",
+            filter: [
+              "all",
+              ["==", "active", "false"],
+              ["==", "$type", "Polygon"],
+            ],
+            paint: {
+              "fill-color": "#f44336",
+              "fill-outline-color": "#f44336",
+              "fill-opacity": 0.3,
+            },
+          },
+          {
+            id: "gl-draw-polygon-fill-active",
+            type: "fill",
+            filter: [
+              "all",
+              ["==", "active", "true"],
+              ["==", "$type", "Polygon"],
+            ],
+            paint: {
+              "fill-color": "#f44336",
+              "fill-outline-color": "#f44336",
+              "fill-opacity": 0.4,
+            },
+          },
+          {
+            id: "gl-draw-polygon-stroke-inactive",
+            type: "line",
+            filter: [
+              "all",
+              ["==", "active", "false"],
+              ["==", "$type", "Polygon"],
+            ],
+            layout: {
+              "line-cap": "round",
+              "line-join": "round",
+            },
+            paint: {
+              "line-color": "#f44336",
+              "line-width": 2,
+            },
+          },
+          {
+            id: "gl-draw-polygon-stroke-active",
+            type: "line",
+            filter: [
+              "all",
+              ["==", "active", "true"],
+              ["==", "$type", "Polygon"],
+            ],
+            layout: {
+              "line-cap": "round",
+              "line-join": "round",
+            },
+            paint: {
+              "line-color": "#f44336",
+              "line-dasharray": [0.2, 2],
+              "line-width": 2,
+            },
+          },
+          // Point styling
+          {
+            id: "gl-draw-point-inactive",
+            type: "circle",
+            filter: [
+              "all",
+              ["==", "active", "false"],
+              ["==", "$type", "Point"],
+            ],
+            paint: {
+              "circle-radius": 5,
+              "circle-color": "#f44336",
+            },
+          },
+          {
+            id: "gl-draw-point-active",
+            type: "circle",
+            filter: ["all", ["==", "active", "true"], ["==", "$type", "Point"]],
+            paint: {
+              "circle-radius": 7,
+              "circle-color": "#f44336",
+            },
+          },
+          // Vertex styling
+          {
+            id: "gl-draw-polygon-and-line-vertex-inactive",
+            type: "circle",
+            filter: ["all", ["==", "meta", "vertex"], ["==", "$type", "Point"]],
+            paint: {
+              "circle-radius": 5,
+              "circle-color": "#fff",
+              "circle-stroke-color": "#f44336",
+              "circle-stroke-width": 2,
+            },
+          },
+        ],
+      });
+
+      // Add draw controls to the map
+      map.addControl(draw);
+
+      // Store routes data globally
+      let allRoutes = [];
+      let routeLayerIds = [];
+
+      // Add event listener for the "Hide All Unsafe Routes" toggle
+      document.getElementById("hide-unsafe-routes").addEventListener("change", function(e) {
+        const hideUnsafe = e.target.checked;
+        
+        // Loop through all routes and update visibility of unsafe ones
+        allRoutes.forEach(route => {
+          const isSafe = route.properties.is_safe;
+          
+          if (!isSafe) {
+            const routeId = route.properties.id;
+            const layerId = `route-${routeId}`;
+            
+            // Update map layer visibility
+            if (map.getLayer(layerId)) {
+              map.setLayoutProperty(
+                layerId,
+                "visibility",
+                hideUnsafe ? "none" : "visible"
+              );
+            }
+            
+            // Update checkbox in the sidebar
+            const routeCard = document.querySelector(`.route-card[data-route-id="${routeId}"]`);
+            if (routeCard) {
+              const checkbox = routeCard.querySelector(".route-visibility");
+              checkbox.checked = !hideUnsafe;
+              
+              // Update route properties
+              route.properties.visible = !hideUnsafe;
+            }
+          }
+        });
+      });
+
+      document
+        .getElementById("find-routes-btn")
+        .addEventListener("click", async () => {
+          const startAddress = document
+            .getElementById("start-address")
+            .value.trim();
+          const endAddress = document
+            .getElementById("end-address")
+            .value.trim();
+
+          if (!startAddress || !endAddress) {
+            alert("Please enter both start and end addresses");
+            return;
+          }
+
+          // Get drawn danger zones
+          const dangerZones = draw.getAll().features;
+
+          // Show loading indicator
+          document.getElementById("loading").style.display = "block";
+          document.getElementById("routes-info").innerText =
+            "Searching for safe routes...";
+
+          try {
+            // Clear previous routes from the map
+            clearAllRoutes();
+
+            // Make API request to find routes
+            const response = await fetch("/api/find_safe_routes", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                start_address: startAddress,
+                end_address: endAddress,
+                danger_zones: dangerZones,
+              }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+              // Store routes data
+              allRoutes = data.all_routes || [];
+
+              // Display routes info
+              document.getElementById("routes-info").innerText = data.message;
+
+              // Add markers for start and end points if we have routes
+              if (
+                allRoutes.length > 0 &&
+                allRoutes[0].geometry.coordinates.length > 0
+              ) {
+                addStartEndMarkers(
+                  allRoutes[0].geometry.coordinates[0],
+                  allRoutes[0].geometry.coordinates[
+                    allRoutes[0].geometry.coordinates.length - 1
+                  ],
+                );
+
+                // Display routes on the map and in the sidebar
+                displayRoutes(allRoutes);
+
+                // Fit map to show all routes
+                fitMapToRoutes(allRoutes);
+              }
+            } else {
+              document.getElementById("routes-info").innerText =
+                data.error || "Error finding routes";
+            }
+          } catch (error) {
+            console.error("Error:", error);
+            document.getElementById("routes-info").innerText =
+              "Error: " + error.message;
+          } finally {
+            // Hide loading indicator
+            document.getElementById("loading").style.display = "none";
+          }
+        });
+
+      function clearAllRoutes() {
+        // Remove route layers from map
+        routeLayerIds.forEach((id) => {
+          if (map.getLayer(id)) {
+            map.removeLayer(id);
+          }
+          if (map.getSource(id)) {
+            map.removeSource(id);
+          }
+        });
+
+        // Remove start/end markers
+        const markers = document.querySelectorAll(".mapboxgl-marker");
+        markers.forEach((marker) => marker.remove());
+
+        // Clear route listings
+        document.getElementById("routes-container").innerHTML = "";
+        
+        // Reset the "Hide All Unsafe Routes" checkbox
+        document.getElementById("hide-unsafe-routes").checked = false;
+
+        // Reset arrays
+        routeLayerIds = [];
+        allRoutes = [];
+      }
+
+      function addStartEndMarkers(startCoords, endCoords) {
+        // Add marker for start point
+        const startMarker = document.createElement("div");
+        startMarker.style.width = "20px";
+        startMarker.style.height = "20px";
+        startMarker.style.borderRadius = "50%";
+        startMarker.style.backgroundColor = "#4CAF50";
+        startMarker.style.border = "2px solid white";
+
+        new mapboxgl.Marker({
+          element: startMarker,
+          anchor: "center",
+        })
+          .setLngLat(startCoords)
+          .addTo(map);
+
+        // Add marker for end point
+        const endMarker = document.createElement("div");
+        endMarker.style.width = "20px";
+        endMarker.style.height = "20px";
+        endMarker.style.borderRadius = "50%";
+        endMarker.style.backgroundColor = "#f44336";
+        endMarker.style.border = "2px solid white";
+
+        new mapboxgl.Marker({
+          element: endMarker,
+          anchor: "center",
+        })
+          .setLngLat(endCoords)
+          .addTo(map);
+      }
+
+      function displayRoutes(routes) {
+        const routesContainer = document.getElementById("routes-container");
+        routesContainer.innerHTML = "";
+        
+        // Check if we should hide unsafe routes
+        const hideUnsafeRoutes = document.getElementById("hide-unsafe-routes").checked;
+
+        // Add each route to the map and the sidebar
+        routes.forEach((route, index) => {
+          const routeId = route.properties.id;
+          const layerId = `route-${routeId}`;
+          const isSafe = route.properties.is_safe;
+          const routeType = route.properties.route_type;
+          const distance = route.properties.distance_km.toFixed(1);
+          const duration = route.properties.duration_min.toFixed(0);
+          
+          // Determine if this route should be visible
+          const isVisible = isSafe || !hideUnsafeRoutes;
+          route.properties.visible = isVisible;
+
+          // Add route to the map
+          addRouteToMap(route, layerId, isSafe, isVisible);
+
+          // Create route card in sidebar
+          const routeCard = document.createElement("div");
+          routeCard.className = `route-card ${isSafe ? "safe-route" : "unsafe-route"}`;
+          routeCard.dataset.routeId = routeId;
+          routeCard.dataset.layerId = layerId;
+
+          routeCard.innerHTML = `
+                    <div class="route-header">
+                        <div class="route-title">Route ${index + 1} ${isSafe ? "(Safe)" : "(Unsafe)"}</div>
+                        <div class="route-type">${routeType === "direct" ? "Direct" : "With Waypoints"}</div>
+                    </div>
+                    <div class="route-details">
+                        <div>${distance} km • ${duration} min</div>
+                    </div>
+                    <div class="route-actions">
+                        <label class="route-toggle">
+                            <input type="checkbox" class="route-visibility" ${isVisible ? 'checked' : ''}>
+                            Visible
+                        </label>
+                    </div>
+                `;
+
+          // Add event listener for visibility toggle
+          const checkbox = routeCard.querySelector(".route-visibility");
+          checkbox.addEventListener("change", async (e) => {
+            const isVisible = e.target.checked;
+
+            // Toggle visibility on the map
+            if (map.getLayer(layerId)) {
+              map.setLayoutProperty(
+                layerId,
+                "visibility",
+                isVisible ? "visible" : "none",
+              );
+
+              // Update route properties
+              route.properties.visible = isVisible;
+              
+              // Update the "Hide All Unsafe Routes" checkbox if necessary
+              if (!isSafe && isVisible) {
+                // If we're making an unsafe route visible, uncheck the "Hide All Unsafe Routes" option
+                document.getElementById("hide-unsafe-routes").checked = false;
+              }
+
+              // Notify the server about visibility change
+              try {
+                await fetch("/api/toggle_route_visibility", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    route_id: routeId,
+                    visible: isVisible,
+                  }),
+                });
+              } catch (error) {
+                console.error("Error toggling visibility:", error);
+              }
+            }
+          });
+
+          routesContainer.appendChild(routeCard);
+        });
+      }
+
+      function addRouteToMap(route, layerId, isSafe, isVisible) {
+        // Add source and layer for this route
+        map.addSource(layerId, {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: {},
+            geometry: route.geometry,
+          },
+        });
+
+        map.addLayer({
+          id: layerId,
+          type: "line",
+          source: layerId,
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+            visibility: isVisible ? "visible" : "none",
+          },
+          paint: {
+            "line-color": isSafe ? "#4CAF50" : "#f44336",
+            "line-width": 5,
+            "line-opacity": isSafe ? 0.8 : 0.5,
+          },
+        });
+
+        // Add waypoints if this is a waypoint route
+        if (
+          route.properties.route_type === "waypoint" &&
+          route.properties.waypoints
+        ) {
+          route.properties.waypoints.forEach((waypoint, i) => {
+            const waypointId = `${layerId}-waypoint-${i}`;
+
+            // Add waypoint to the map
+            map.addSource(waypointId, {
+              type: "geojson",
+              data: {
+                type: "Feature",
+                properties: {},
+                geometry: {
+                  type: "Point",
+                  coordinates: waypoint,
+                },
+              },
+            });
+
+            map.addLayer({
+              id: waypointId,
+              type: "circle",
+              source: waypointId,
+              layout: {
+                visibility: isVisible ? "visible" : "none",
+              },
+              paint: {
+                "circle-radius": 6,
+                "circle-color": "#2196F3",
+                "circle-stroke-color": "white",
+                "circle-stroke-width": 2,
+              },
+            });
+
+            routeLayerIds.push(waypointId);
+          });
+        }
+
+        // Keep track of layer IDs for later removal
+        routeLayerIds.push(layerId);
+      }
+
+      function fitMapToRoutes(routes) {
+        if (routes.length === 0) return;
+
+        // Create a bounding box that includes all routes
+        const bounds = new mapboxgl.LngLatBounds();
+
+        routes.forEach((route) => {
+          route.geometry.coordinates.forEach((coord) => {
+            bounds.extend(coord);
+          });
+        });
+
+        // Fit the map to the bounds with padding
+        map.fitBounds(bounds, {
+          padding: 50,
+        });
+      }
+
+      // Initialize the map
+      map.on("load", function () {
+        // Fly to a default location (e.g., New York City)
+        map.flyTo({
+          center: [-74.006, 40.7128],
+          zoom: 10,
+        });
+      });
+    </script>
+  </body>
+</html>
