@@ -9,6 +9,8 @@ import { useState, useCallback, useEffect } from "react";
 import type { PickInfo } from "@deck.gl/core/lib/deck";
 import { Feature, FeatureCollection, Polygon, Position } from "geojson";
 
+const API_URL = "http://127.0.0.1:8080";
+
 export default function App() {
   // --- Types ---
   type InteractionMode = "selectStartPoint" | "drawExclusionZone" | "drawSafeZone";
@@ -44,6 +46,11 @@ export default function App() {
     width: typeof window !== 'undefined' ? window.innerWidth : 1024,
     height: typeof window !== 'undefined' ? window.innerHeight : 768
   });
+  // === ADDED: State for save/load operations ===
+  const [isSavingZones, setIsSavingZones] = useState<boolean>(false);
+  const [isLoadingZones, setIsLoadingZones] = useState<boolean>(false);
+  const [zoneMessage, setZoneMessage] = useState<string | null>(null);
+  // === END ADDED STATE ===
 
   // --- Effects ---
   useEffect(() => {
@@ -68,7 +75,7 @@ export default function App() {
 
       console.log("Sending path to safe zone request:", requestBody);
       // Ensure the backend URL is correct (assuming it's still 8080 based on previous code, adjust if needed)
-      const response = await fetch("http://127.0.0.1:8080/find_path", { // Changed port from 8000 to 8080 to match run.sh
+      const response = await fetch(`${API_URL}/find_path`, { // Changed port from 8000 to 8080 to match run.sh
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -202,6 +209,137 @@ export default function App() {
     },
     [interactionMode, isLoadingPath]
   );
+
+  // === ADDED: Function to Save Zones ===
+  const handleSaveZones = async () => {
+    if (isSavingZones || isLoadingZones) return;
+    setIsSavingZones(true); 
+    setZoneMessage('Saving zones...'); 
+
+    // Get current zones from state (which holds the Feature objects)
+    // Extract coordinates in the format expected by the backend API
+    const exclusionZonesForApi = drawnExclusionFeatures.features.map(zone => ({
+         // Draw returns coordinates wrapped in an extra array for Polygon
+        coordinates: zone.geometry.coordinates[0]
+    }));
+    const safeZonesForApi = committedSafeZoneFeatures.features.map(zone => ({
+        coordinates: zone.geometry.coordinates[0]
+    }));
+
+    const zonesData = {
+        exclusion: exclusionZonesForApi,
+        safe: safeZonesForApi
+    };
+
+    try {
+      const response = await fetch(`${API_URL}/save_zones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(zonesData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to save zones');
+      }
+
+      setZoneMessage('Zones saved successfully!'); 
+      console.log('Zones saved:', result);
+
+    } catch (error: unknown) { 
+      console.error('Error saving zones:', error);
+      // Type check before accessing message
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      setZoneMessage(`Error: ${errorMessage}`); 
+    } finally {
+      setIsSavingZones(false); 
+      // Clear message after a delay
+      setTimeout(() => setZoneMessage(null), 3000); 
+    }
+  };
+  // === END ADDED SAVE FUNCTION ===
+
+  // === ADDED: Function to Load Zones ===
+  const handleLoadZones = async () => {
+    if (isLoadingZones || isSavingZones) return;
+    setIsLoadingZones(true); 
+    setZoneMessage('Loading zones...'); 
+
+    try {
+      const response = await fetch(`${API_URL}/load_zones`);
+      const loadedZones: any = await response.json();
+
+      if (!response.ok) {
+        // @ts-ignore - detail might be on error response json
+        throw new Error(loadedZones.detail || 'Failed to load zones');
+      }
+
+      // Clear existing drawings and state
+      setDrawnExclusionFeatures({ type: "FeatureCollection", features: [] });
+      setCommittedSafeZoneFeatures({ type: "FeatureCollection", features: [] });
+      setCurrentStartPoint(null);
+      setPathRequests([]);
+
+      // Add loaded zones to Draw and update state
+      const loadedExclusionFeatures: any[] = [];
+      const loadedSafeFeatures: any[] = [];
+
+      // Ensure loadedZones and its properties exist before iterating
+      if (loadedZones?.exclusion) {
+          loadedZones.exclusion.forEach((zone: any, index: number) => {
+              if (!zone?.coordinates) return; // Skip if coordinates are missing
+              const feature = {
+                  id: `loaded-exclusion-${Date.now()}-${index}`,
+                  type: 'Feature',
+                  properties: { type: 'exclusion' },
+                  geometry: {
+                      type: 'Polygon',
+                      coordinates: [zone.coordinates] // Wrap coordinates for GeoJSON Polygon
+                  }
+              };
+              loadedExclusionFeatures.push(feature);
+          });
+      }
+
+      if (loadedZones?.safe) {
+          loadedZones.safe.forEach((zone: any, index: number) => {
+              if (!zone?.coordinates) return; // Skip if coordinates are missing
+              const feature = {
+                  id: `loaded-safe-${Date.now()}-${index}`,
+                  type: 'Feature',
+                  properties: { type: 'safe' },
+                  geometry: {
+                      type: 'Polygon',
+                      coordinates: [zone.coordinates]
+                  }
+              };
+              loadedSafeFeatures.push(feature);
+          });
+      }
+
+      // Update state with the full Feature objects added to Draw
+      setDrawnExclusionFeatures({ type: "FeatureCollection", features: loadedExclusionFeatures });
+      setCommittedSafeZoneFeatures({ type: "FeatureCollection", features: loadedSafeFeatures });
+
+      setZoneMessage(`Loaded ${loadedExclusionFeatures.length} exclusion and ${loadedSafeFeatures.length} safe zones.`); 
+      console.log('Zones loaded:', loadedZones);
+      // Switch back to point selection mode after loading
+      setInteractionMode('selectStartPoint');
+
+    } catch (error: unknown) { 
+      console.error('Error loading zones:', error);
+      // Type check before accessing message
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      setZoneMessage(`Error: ${errorMessage}`); 
+    } finally {
+      setIsLoadingZones(false); 
+       // Clear message after a delay
+      setTimeout(() => setZoneMessage(null), 3000); 
+    }
+  };
+  // === END ADDED LOAD FUNCTION ===
+
 
   // --- Layer Definitions ---
    const layers = [
@@ -371,6 +509,53 @@ export default function App() {
                 Reset
             </button>
 
+            {/* === ADDED: Save/Load Buttons === */}
+            <button
+              onClick={handleSaveZones}
+              disabled={isSavingZones || isLoadingZones}
+              style={{
+                background: "#F3F4F6",
+                color: "#1F2937",
+                fontWeight: 500,
+                padding: "10px 14px",
+                borderRadius: "8px",
+                border: "1px solid rgba(209, 213, 219, 0.8)",
+                cursor: isSavingZones || isLoadingZones ? "default" : "pointer",
+                transition: "all 0.2s ease",
+                boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)",
+                opacity: isSavingZones || isLoadingZones ? 0.6 : 1,
+                fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
+                flexShrink: 0,
+                whiteSpace: "nowrap",
+                minWidth: "80px",
+              }}
+            >
+              {isSavingZones ? 'Saving...' : 'Save Zones'}
+            </button>
+            <button
+              onClick={handleLoadZones}
+              disabled={isSavingZones || isLoadingZones}
+              style={{
+                background: "#F3F4F6",
+                color: "#1F2937",
+                fontWeight: 500,
+                padding: "10px 14px",
+                borderRadius: "8px",
+                border: "1px solid rgba(209, 213, 219, 0.8)",
+                cursor: isSavingZones || isLoadingZones ? "default" : "pointer",
+                transition: "all 0.2s ease",
+                boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)",
+                opacity: isSavingZones || isLoadingZones ? 0.6 : 1,
+                fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
+                flexShrink: 0,
+                whiteSpace: "nowrap",
+                minWidth: "80px",
+              }}
+            >
+              {isLoadingZones ? 'Loading...' : 'Load Zones'}
+            </button>
+            {/* === END ADDED BUTTONS === */}
+
           {isLoadingPath && (
               <div style={{
                 display: "flex",
@@ -392,6 +577,20 @@ export default function App() {
                 <span>Finding path...</span>
               </div>
           )}
+          {/* === ADDED: Zone Message Display === */}
+          {zoneMessage && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              color: "#1F2937",
+              fontWeight: 500,
+              fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
+              marginLeft: "4px",
+            }}>
+              <span>{zoneMessage}</span>
+            </div>
+          )}
+          {/* === END ADDED ZONE MESSAGE DISPLAY === */}
       </div>
 
       <DeckGL

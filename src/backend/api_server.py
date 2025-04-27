@@ -10,9 +10,12 @@ from pydantic import BaseModel, Field
 from typing import List, Tuple
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+import json
+import os
 
 # --- Configuration ---
 PICKLE_FILENAME = '../../public/road_graph_data.pkl' # Use the cropped graph
+SAVED_ZONES_FILENAME = 'saved_zones.json' # File to store zones
 SOURCE_CRS = "EPSG:4326"  # WGS84 (longitude, latitude)
 TARGET_CRS = "EPSG:32610"  # Projected CRS used for graph building (UTM Zone 10N)
 # --- End Configuration ---
@@ -122,8 +125,12 @@ class PathRequest(BaseModel):
 
 class PathResponse(BaseModel):
     path_found: bool
-    path_coordinates: List[Tuple[float, float]] = Field(None, description="List of [longitude, latitude] tuples for the path, if found")
+    path: List[Tuple[float, float]] = Field(None, description="List of [longitude, latitude] tuples for the path, if found")
     message: str
+
+class ZonesData(BaseModel):
+    exclusion: List[PolygonInput]
+    safe: List[PolygonInput]
 
 # --- API Endpoint ---
 @app.post("/find_path", response_model=PathResponse)
@@ -175,90 +182,146 @@ async def find_path(request: PathRequest):
             print(msg)
             return PathResponse(path_found=False, message=msg)
 
-        # --- MODIFIED: Path to Centroid of First Safe Zone --- 
-        print("Calculating path to centroid of the first safe zone...")
+        # --- MODIFIED: Find shortest path to the NEAREST safe zone (based on centroid) --- 
+        print("Finding path to the nearest safe zone (via centroid node)...")
         if not request.safe_zones:
              raise HTTPException(status_code=400, detail="At least one safe zone must be provided.")
 
-        # Take the first safe zone
-        first_safe_zone_input = request.safe_zones[0]
-        if len(first_safe_zone_input.coordinates) < 3:
-            raise HTTPException(status_code=400, detail="First safe zone polygon is invalid (less than 3 vertices).")
+        shortest_path_len = float('inf')
+        final_target_node = None
+        processed_safe_zones = 0
 
-        # Transform coordinates and create polygon
-        safe_poly_coords_metric = [transformer_to_metric.transform(lon, lat) for lon, lat in first_safe_zone_input.coordinates]
-        safe_poly = Polygon(safe_poly_coords_metric)
+        for i, safe_zone_input in enumerate(request.safe_zones):
+            print(f"  Processing safe zone {i+1}/{len(request.safe_zones)}...")
+            if len(safe_zone_input.coordinates) < 3:
+                print(f"    Skipping invalid safe zone polygon {i+1} (< 3 vertices).")
+                continue
 
-        # Calculate centroid
-        centroid = safe_poly.centroid
-        centroid_coords_metric = (centroid.x, centroid.y)
+            # Transform coordinates and create polygon
+            safe_poly_coords_metric = [transformer_to_metric.transform(lon, lat) for lon, lat in safe_zone_input.coordinates]
+            safe_poly = Polygon(safe_poly_coords_metric)
 
-        # Find nearest node in G_temp to the centroid
-        target_node = get_nearest_node_api(G_temp, centroid_coords_metric, node_points_base)
+            # Calculate centroid
+            centroid = safe_poly.centroid
+            centroid_coords_metric = (centroid.x, centroid.y)
 
-        if target_node is None:
-            msg = "Could not find a node near the centroid of the first safe zone in the accessible graph."
+            # Find nearest node in G_temp to the centroid
+            current_target_node = get_nearest_node_api(G_temp, centroid_coords_metric, node_points_base)
+
+            if current_target_node is None:
+                print(f"    Could not find node near centroid for safe zone {i+1}.")
+                continue
+
+            print(f"    Nearest node to centroid: {current_target_node}")
+
+            # Calculate path length from start_node to this potential target
+            current_path_length = float('inf')
+            try:
+                if start_node == current_target_node:
+                    current_path_length = 0
+                elif nx.has_path(G_temp, source=start_node, target=current_target_node):
+                    current_path_length = nx.shortest_path_length(G_temp, source=start_node, target=current_target_node, weight='weight')
+                else:
+                    print(f"    No path found from start node to {current_target_node}.")
+                    continue # Skip if no path exists
+
+                print(f"    Path length to this target: {current_path_length:.2f}")
+
+                # Check if this path is the shortest found so far
+                if current_path_length < shortest_path_len:
+                    shortest_path_len = current_path_length
+                    final_target_node = current_target_node
+                    print(f"    New shortest path found to target {final_target_node} (via safe zone {i+1}). Length: {shortest_path_len:.2f}")
+                processed_safe_zones += 1
+
+            except nx.NodeNotFound as e:
+                 # Should not happen if get_nearest_node_api worked, but handle defensively
+                 print(f"    Node not found error during path length calculation: {e}")
+                 continue
+            except Exception as e:
+                 print(f"    Unexpected error calculating path length for target {current_target_node}: {e}")
+                 continue
+
+        # 5. Calculate final path and return response
+        if final_target_node is not None:
+            print(f"Shortest path identified to target node {final_target_node} (length: {shortest_path_len:.2f}). Calculating node path...")
+            try:
+                # Calculate the actual path (list of nodes)
+                path_nodes = nx.shortest_path(G_temp, source=start_node, target=final_target_node, weight='weight')
+                
+                # Transform path nodes back to WGS84 coordinates
+                path_coords_wgs84 = []
+                for node in path_nodes:
+                    if node in node_points_base:
+                        metric_x, metric_y = node_points_base[node].x, node_points_base[node].y
+                        lon, lat = transformer_to_wgs84.transform(metric_x, metric_y)
+                        path_coords_wgs84.append([lon, lat])
+                    else:
+                        print(f"Warning: Node {node} from shortest path not found in node_points_base.")
+                
+                calculation_time = time.perf_counter() - request_start_time
+                msg = f"Path found to nearest safe zone in {calculation_time:.4f} seconds. Nodes: {len(path_coords_wgs84)}"
+                print(msg)
+                print(f"DEBUG: Returning path type: {type(path_coords_wgs84)}, content: {path_coords_wgs84}") 
+                return PathResponse(path_found=True, path=path_coords_wgs84, message=msg)
+                
+            except nx.NetworkXNoPath:
+                msg = f"Internal Error: No path exists from start node {start_node} to final target node {final_target_node}, even though length was calculated."
+                print(msg)
+                return PathResponse(path_found=False, message=msg)
+            except Exception as final_path_err:
+                msg = f"Error calculating final shortest path or transforming coordinates: {final_path_err}"
+                print(msg)
+                raise HTTPException(status_code=500, detail=msg)
+        else:
+            # This case means no path was found from the start node to *any* safe zone centroid node
+            calculation_time = time.perf_counter() - request_start_time
+            msg = f"Could not find a path from the start location to any of the provided safe zones' accessible nodes. Searched {len(request.safe_zones)} zones. Time: {calculation_time:.4f}s"
             print(msg)
             return PathResponse(path_found=False, message=msg)
 
-        print(f"Target node (nearest to centroid): {target_node}")
-
-        # 6. Calculate shortest path from start_node to the single target_node
-        shortest_path = None
-        try:
-            if start_node == target_node:
-                shortest_path = [start_node]
-                shortest_path_len = 0
-                print("Start node is the nearest node to the safe zone centroid.")
-            else:
-                # Check reachability first
-                if not nx.has_path(G_temp, source=start_node, target=target_node):
-                     msg = f"No path found from start node {start_node} to target node {target_node} (near centroid)."
-                     print(msg)
-                     return PathResponse(path_found=False, message=msg)
-
-                # Calculate path and length
-                shortest_path = nx.shortest_path(G_temp, source=start_node, target=target_node, weight='weight')
-                shortest_path_len = nx.shortest_path_length(G_temp, source=start_node, target=target_node, weight='weight')
-                print(f"Shortest path found to target {target_node} with length {shortest_path_len:.2f} and {len(shortest_path)} nodes.")
-
-        except nx.NodeNotFound as e:
-             msg = f"Node not found during path calculation: {e}"
-             print(msg)
-             return PathResponse(path_found=False, message=msg)
-        except nx.NetworkXNoPath:
-             # This case is handled by the has_path check above, but keep for robustness
-             msg = f"NetworkXNoPath error encountered unexpectedly for start={start_node}, target={target_node}."
-             print(msg)
-             return PathResponse(path_found=False, message=msg)
-
-        if shortest_path is None:
-            # Should not happen if logic above is correct, but handle defensively
-             msg = f"Failed to determine shortest path to target node {target_node}."
-             print(msg)
-             return PathResponse(path_found=False, message=msg)
-
-        # 7. Transform path back to WGS84
-        # Assumes nodes in shortest_path are the metric coordinate tuples
-        path_latlon = [transformer_to_wgs84.transform(node[0], node[1]) for node in shortest_path]
-
-        request_end_time = time.perf_counter()
-        print(f"Path to safe zone centroid calculated in {request_end_time - request_start_time:.3f} seconds.")
-
-        return PathResponse(
-            path_found=True,
-            path_coordinates=path_latlon,
-            message="Shortest path to a safe zone centroid calculated successfully."
-        )
-
-    except HTTPException as http_exc:
-        # Re-raise HTTP exceptions directly
-        raise http_exc
     except Exception as e:
         print(f"An unexpected error occurred during path finding to safe zone: {e}")
         # import traceback
         # print(traceback.format_exc()) # Uncomment for debugging
         raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
+
+# --- API Endpoint to Save Zones ---
+@app.post("/save_zones")
+async def save_zones(zones_data: ZonesData):
+    try:
+        print(f"Saving {len(zones_data.exclusion)} exclusion zones and {len(zones_data.safe)} safe zones...")
+        # Convert Pydantic models to dict for JSON serialization
+        data_to_save = zones_data.dict()
+        with open(SAVED_ZONES_FILENAME, 'w') as f:
+            json.dump(data_to_save, f, indent=4)
+        print(f"Zones saved successfully to {SAVED_ZONES_FILENAME}")
+        return {"message": "Zones saved successfully."}
+    except Exception as e:
+        print(f"Error saving zones: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error while saving zones: {e}")
+
+# --- API Endpoint to Load Zones ---
+@app.get("/load_zones", response_model=ZonesData)
+async def load_zones():
+    try:
+        if not os.path.exists(SAVED_ZONES_FILENAME):
+            print("Saved zones file not found, returning empty lists.")
+            return ZonesData(exclusion=[], safe=[]) # Return empty structure if file doesn't exist
+
+        print(f"Loading zones from {SAVED_ZONES_FILENAME}...")
+        with open(SAVED_ZONES_FILENAME, 'r') as f:
+            loaded_data = json.load(f)
+            # Validate loaded data against the Pydantic model
+            zones = ZonesData(**loaded_data)
+            print(f"Loaded {len(zones.exclusion)} exclusion zones and {len(zones.safe)} safe zones.")
+            return zones
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON from {SAVED_ZONES_FILENAME}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error reading saved zones file: Invalid JSON format.")
+    except Exception as e:
+        print(f"Error loading zones: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error while loading zones: {e}")
 
 # --- Add entry point to run with Uvicorn (for simple execution) ---
 if __name__ == "__main__":
