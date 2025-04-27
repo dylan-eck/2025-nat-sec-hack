@@ -11,6 +11,8 @@
   "dependencies": {
     "@deck.gl/layers": "^8.9.36",
     "@deck.gl/react": "^8.9.36",
+    "@mapbox/search-js-react": "^1.0.0",
+    "@mapbox/search-js-web": "^1.0.0",
     "@nebula.gl/edit-modes": "^1.0.4",
     "@nebula.gl/layers": "^1.0.4",
     "deck.gl": "^8.9.36",
