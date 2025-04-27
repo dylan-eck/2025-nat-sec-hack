@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 
 // Types matching backend API for Zones and Pathfinding
 interface Coordinate {
@@ -33,7 +33,7 @@ export default function LocationPage() {
   const [isLoadingZones, setIsLoadingZones] = useState<boolean>(true);
   const [isFindingPath, setIsFindingPath] = useState<boolean>(false);
   const [pathError, setPathError] = useState<string | null>(null);
-  const [foundPathCoords, setFoundPathCoords] = useState<[number, number][] | null>(null);
+  const [googleMapsUrl, setGoogleMapsUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined" || !navigator.geolocation) {
@@ -91,6 +91,91 @@ export default function LocationPage() {
     loadZones();
   }, []);
 
+  const handleFindPath = useCallback(async () => {
+    const startPoint = location || geocodedCoords;
+
+    if (!startPoint) {
+      setPathError("Cannot find path: Your location is not determined yet.");
+      return;
+    }
+
+    if (isLoadingZones) {
+      setPathError("Cannot find path: Still loading saved zones. Please wait.");
+      return;
+    }
+
+    if (!savedZones || savedZones.safe.length === 0) {
+      setPathError(
+        "Cannot find path: No saved safe zones found. Please define safe zones on the main map page and save them."
+      );
+      return;
+    }
+
+    setIsFindingPath(true);
+    setPathError(null);
+    setGoogleMapsUrl(null);
+
+    const requestBody = {
+      start_point: startPoint,
+      exclusion_zones: savedZones.exclusion,
+      safe_zones: savedZones.safe,
+    };
+
+    try {
+      console.log("Sending path request from location page:", requestBody);
+      const response = await fetch(`${API_URL}/find_path`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.path_found) {
+        throw new Error(result.message || "Failed to find path");
+      }
+
+      console.log("Path found (length):", result.path?.length);
+
+      try {
+        // Check if path is valid before generating link
+        if (!result.path || result.path.length < 2) {
+          throw new Error("Received invalid path data from API");
+        }
+        const mapsUrl = generateGoogleMapsRouteLink(result.path);
+        setGoogleMapsUrl(mapsUrl);
+        console.log("Google Maps URL:", mapsUrl);
+      } catch (urlError: unknown) {
+        console.error("Error generating Google Maps URL:", urlError);
+        // Optionally set a specific error state for URL generation failure
+        // setPathError("Path found, but couldn't generate map link.");
+      }
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "An unknown error occurred during pathfinding.";
+      console.error("Pathfinding error:", err);
+      setPathError(message);
+      setGoogleMapsUrl(null); // Ensure URL is cleared on error
+    } finally {
+      setIsFindingPath(false);
+    }
+  }, [location, geocodedCoords, savedZones, isLoadingZones]);
+
+  useEffect(() => {
+    const startPoint = location || geocodedCoords;
+    // Trigger find path only when:
+    // 1. We have a start point (location or geocoded)
+    // 2. Zones are loaded (not loading and not null)
+    // 3. We aren't already finding a path
+    // 4. We haven't already found a path (check googleMapsUrl to prevent re-triggering)
+    if (startPoint && !isLoadingZones && savedZones && !isFindingPath && !googleMapsUrl) {
+      console.log("Auto-triggering find path...");
+      handleFindPath();
+    }
+  }, [location, geocodedCoords, savedZones, isLoadingZones, isFindingPath, googleMapsUrl, handleFindPath]);
+
   const handleGeocode = async () => {
     if (!manualAddress) {
       setError("Please enter an address to geocode.");
@@ -128,62 +213,32 @@ export default function LocationPage() {
     }
   };
 
-  const handleFindPath = async () => {
-    const startPoint = location || geocodedCoords;
-
-    if (!startPoint) {
-      setPathError("Cannot find path: Your location is not determined yet.");
-      return;
+  const generateGoogleMapsRouteLink = (points: [number, number][]): string => {
+    if (!Array.isArray(points) || points.length < 2) {
+      throw new Error("Need at least 2 points to create a route");
     }
 
-    if (isLoadingZones) {
-      setPathError("Cannot find path: Still loading saved zones. Please wait.");
-      return;
+    // API returns [longitude, latitude], Google Maps needs [latitude, longitude]
+    const formatCoord = (point: [number, number]): string => `${point[1]},${point[0]}`;
+
+    const origin = formatCoord(points[0]);
+    const destination = formatCoord(points[points.length - 1]);
+
+    const waypoints = points
+      .slice(1, -1)
+      .map(formatCoord)
+      .join("|");
+
+    let url =
+      `https://www.google.com/maps/dir/?api=1` +
+      `&origin=${encodeURIComponent(origin)}` +
+      `&destination=${encodeURIComponent(destination)}`;
+
+    if (waypoints) {
+      url += `&waypoints=${encodeURIComponent(waypoints)}`;
     }
 
-    if (!savedZones || savedZones.safe.length === 0) {
-      setPathError(
-        "Cannot find path: No saved safe zones found. Please define safe zones on the main map page and save them."
-      );
-      return;
-    }
-
-    setIsFindingPath(true);
-    setPathError(null);
-    setFoundPathCoords(null);
-
-    const requestBody = {
-      start_point: startPoint,
-      exclusion_zones: savedZones.exclusion,
-      safe_zones: savedZones.safe,
-    };
-
-    try {
-      console.log("Sending path request from location page:", requestBody);
-      const response = await fetch(`${API_URL}/find_path`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.path_found) {
-        throw new Error(result.message || "Failed to find path");
-      }
-
-      console.log("Path found:", result.path);
-      setFoundPathCoords(result.path);
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "An unknown error occurred during pathfinding.";
-      console.error("Pathfinding error:", err);
-      setPathError(message);
-    } finally {
-      setIsFindingPath(false);
-    }
+    return url;
   };
 
   const currentLocationString = location
@@ -280,7 +335,7 @@ export default function LocationPage() {
           </form>
         )}
 
-        {/* --- ADDED: Pathfinding Section --- */}
+        {/* --- Pathfinding Section --- */}
         <div
           style={{
             marginTop: "30px",
@@ -288,66 +343,44 @@ export default function LocationPage() {
             paddingTop: "20px",
           }}
         >
-          <h2>Find Route to Safety</h2>
+          <h2>Route to Safety</h2>
           {isLoadingZones && <p>Loading saved zone data...</p>}
-          {pathError && <p style={{ color: "red" }}>Path Error: {pathError}</p>}
+          {isFindingPath && <p>Calculating route...</p>}
+          {pathError && <p style={{ color: "red" }}>Error: {pathError}</p>}
 
-          <button
-            onClick={handleFindPath}
-            disabled={
-              isLoadingZones || isFindingPath || !(location || geocodedCoords)
-            }
-            style={{
-              padding: "10px 15px",
-              fontSize: "16px",
-              cursor:
-                isLoadingZones || isFindingPath || !(location || geocodedCoords)
-                  ? "not-allowed"
-                  : "pointer",
-              opacity:
-                isLoadingZones || isFindingPath || !(location || geocodedCoords)
-                  ? 0.6
-                  : 1,
-            }}
-          >
-            {isFindingPath
-              ? "Finding Path..."
-              : "Find Path to Nearest Safe Zone"}
-          </button>
-          {!(location || geocodedCoords) && !error && (
+          {!(location || geocodedCoords) && !error && !isLoadingZones && (
             <p>Waiting for location to be determined...</p>
           )}
-          {savedZones && !isLoadingZones && (
+          {savedZones && !isLoadingZones && !isFindingPath && !googleMapsUrl && !pathError && (
             <p style={{ fontSize: "12px", color: "#555", marginTop: "10px" }}>
-              Using {savedZones.exclusion.length} exclusion zone(s) and{" "}
-              {savedZones.safe.length} safe zone(s) loaded from saved data.
+              Ready to find path using {savedZones.exclusion.length} exclusion zone(s) and{" "}
+              {savedZones.safe.length} safe zone(s).
             </p>
           )}
-          {foundPathCoords && foundPathCoords.length > 0 && (
-            <div style={{ marginTop: "20px" }}>
-              <h3>Calculated Path Coordinates:</h3>
-              <textarea
-                readOnly
-                rows={10}
+
+          {googleMapsUrl && (
+            <div style={{ marginTop: "15px" }}>
+              <p style={{ marginBottom: "10px", color: "green" }}>Route found!</p>
+              <a
+                href={googleMapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
                 style={{
-                  width: "100%",
-                  marginTop: "10px",
-                  padding: "10px",
-                  border: "1px solid #ccc",
+                  display: "inline-block",
+                  padding: "10px 15px",
+                  backgroundColor: "#1a73e8", // Google Blue
+                  color: "white",
+                  textDecoration: "none",
                   borderRadius: "4px",
-                  fontFamily: "monospace",
-                  fontSize: "14px",
-                  whiteSpace: "pre", // Ensure formatting is preserved
-                  overflow: "auto", // Add scrollbars if needed
+                  fontWeight: "bold",
                 }}
-                value={foundPathCoords
-                  .map((coord) => `Lon: ${coord[0]}, Lat: ${coord[1]}`)
-                  .join("\n")}
-              />
+              >
+                Open Route in Google Maps
+              </a>
             </div>
           )}
         </div>
-        {/* --- END ADDED PATHFINDING SECTION --- */}
+        {/* --- END Pathfinding SECTION --- */}
       </div>
     </div>
   );
