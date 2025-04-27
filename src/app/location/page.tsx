@@ -22,11 +22,18 @@ const MAPBOX_ACCESS_TOKEN =
   process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || "YOUR_MAPBOX_ACCESS_TOKEN";
 
 export default function LocationPage() {
-  const [location, setLocation] = useState<Coordinate | null>(null);
+  const [location, setLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [manualAddress, setManualAddress] = useState<string>("");
-  const [geocodedCoords, setGeocodedCoords] = useState<Coordinate | null>(null);
+  const [manualAddress, setManualAddress] = useState<string>(""); // Keep for potential display or prefill
+  const [geocodedCoords, setGeocodedCoords] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [showMapboxInput, setShowMapboxInput] = useState<boolean>(false);
+  // Ref for the custom element
   const mapboxAutofillRef = useRef<HTMLElement | null>(null);
 
   const [savedZones, setSavedZones] = useState<ZonesData | null>(null);
@@ -37,29 +44,42 @@ export default function LocationPage() {
 
   useEffect(() => {
     if (typeof window === "undefined" || !navigator.geolocation) {
+      // Only set error if in browser and geolocation is not supported
       if (typeof window !== "undefined") {
         setError("Geolocation is not supported by your browser.");
         setShowMapboxInput(true);
       }
-      return;
+      return; // Exit if not in browser or no geolocation
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
-        setError(null);
-        setShowMapboxInput(false);
-      },
-      (err) => {
-        setError(`Geolocation Error: ${err.message}`);
-        setShowMapboxInput(true);
+    const handleSuccess = (position: GeolocationPosition) => {
+      setLocation({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      });
+      setError(null);
+      setShowMapboxInput(false);
+    };
+
+    const handleError = (error: GeolocationPositionError) => {
+      // Updated error handling for timeout
+      let errorMessage = "Could not determine location automatically."; // Default user-friendly message
+      if (error.code !== error.TIMEOUT) {
+        // Use specific message for other errors if desired, or keep generic
+        // errorMessage = `Unable to retrieve location: ${error.message}`;
       }
-    );
+      setError(errorMessage);
+      setShowMapboxInput(true);
+    };
+
+    navigator.geolocation.getCurrentPosition(handleSuccess, handleError, {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0,
+    });
   }, []);
 
+  // Effect to load Mapbox script and attach event listener to custom element
   useEffect(() => {
     const loadZones = async () => {
       setIsLoadingZones(true);
@@ -170,11 +190,25 @@ export default function LocationPage() {
     // 2. Zones are loaded (not loading and not null)
     // 3. We aren't already finding a path
     // 4. We haven't already found a path (check googleMapsUrl to prevent re-triggering)
-    if (startPoint && !isLoadingZones && savedZones && !isFindingPath && !googleMapsUrl) {
+    if (
+      startPoint &&
+      !isLoadingZones &&
+      savedZones &&
+      !isFindingPath &&
+      !googleMapsUrl
+    ) {
       console.log("Auto-triggering find path...");
       handleFindPath();
     }
-  }, [location, geocodedCoords, savedZones, isLoadingZones, isFindingPath, googleMapsUrl, handleFindPath]);
+  }, [
+    location,
+    geocodedCoords,
+    savedZones,
+    isLoadingZones,
+    isFindingPath,
+    googleMapsUrl,
+    handleFindPath,
+  ]);
 
   const handleGeocode = async () => {
     if (!manualAddress) {
@@ -219,15 +253,13 @@ export default function LocationPage() {
     }
 
     // API returns [longitude, latitude], Google Maps needs [latitude, longitude]
-    const formatCoord = (point: [number, number]): string => `${point[1]},${point[0]}`;
+    const formatCoord = (point: [number, number]): string =>
+      `${point[1]},${point[0]}`;
 
     const origin = formatCoord(points[0]);
     const destination = formatCoord(points[points.length - 1]);
 
-    const waypoints = points
-      .slice(1, -1)
-      .map(formatCoord)
-      .join("|");
+    const waypoints = points.slice(1, -1).map(formatCoord).join("|");
 
     let url =
       `https://www.google.com/maps/dir/?api=1` +
@@ -273,16 +305,11 @@ export default function LocationPage() {
           </div>
         )}
 
-        <div>
-          <h2>Current Location:</h2>
-          <p>{currentLocationString}</p>
-        </div>
-
         {showMapboxInput && (
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              handleGeocode();
+              handleSubmit();
             }}
             className="mt-4"
           >
@@ -292,6 +319,8 @@ export default function LocationPage() {
             </p>
 
             {MAPBOX_ACCESS_TOKEN !== "YOUR_MAPBOX_ACCESS_TOKEN" ? (
+              // Use the custom element
+              // Note: We need to declare this custom element type for TypeScript
               <mapbox-address-autofill
                 ref={mapboxAutofillRef as React.RefObject<HTMLInputElement>}
                 access-token={MAPBOX_ACCESS_TOKEN}
@@ -299,10 +328,10 @@ export default function LocationPage() {
                 <input
                   name="address"
                   placeholder="Enter your address"
-                  autoComplete="address-line1"
+                  autoComplete="address-line1" // Standard autocomplete helps, Mapbox enhances
                   className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  value={manualAddress}
-                  onChange={(e) => setManualAddress(e.target.value)}
+                  // value={manualAddress} // Input value is controlled by the custom element
+                  // onChange={handleAddressChange} // Change is handled by the custom element
                 />
               </mapbox-address-autofill>
             ) : (
@@ -351,16 +380,22 @@ export default function LocationPage() {
           {!(location || geocodedCoords) && !error && !isLoadingZones && (
             <p>Waiting for location to be determined...</p>
           )}
-          {savedZones && !isLoadingZones && !isFindingPath && !googleMapsUrl && !pathError && (
-            <p style={{ fontSize: "12px", color: "#555", marginTop: "10px" }}>
-              Ready to find path using {savedZones.exclusion.length} exclusion zone(s) and{" "}
-              {savedZones.safe.length} safe zone(s).
-            </p>
-          )}
+          {savedZones &&
+            !isLoadingZones &&
+            !isFindingPath &&
+            !googleMapsUrl &&
+            !pathError && (
+              <p style={{ fontSize: "12px", color: "#555", marginTop: "10px" }}>
+                Ready to find path using {savedZones.exclusion.length} exclusion
+                zone(s) and {savedZones.safe.length} safe zone(s).
+              </p>
+            )}
 
           {googleMapsUrl && (
             <div style={{ marginTop: "15px" }}>
-              <p style={{ marginBottom: "10px", color: "green" }}>Route found!</p>
+              <p style={{ marginBottom: "10px", color: "green" }}>
+                Route found!
+              </p>
               <a
                 href={googleMapsUrl}
                 target="_blank"
@@ -386,6 +421,7 @@ export default function LocationPage() {
   );
 }
 
+// Add TypeScript declaration for the custom element to avoid JSX errors
 declare global {
   namespace JSX {
     interface IntrinsicElements {
