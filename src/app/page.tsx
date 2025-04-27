@@ -473,27 +473,41 @@ export default function App() {
          style={{
             position: "absolute",
             zIndex: 10,
-            right: "max(16px, 2vw)",
+            left: "50%",
             bottom: "max(16px, 2vh)",
+            transform: "translateX(-50%)",
             background: "rgba(255, 255, 255, 0.95)",
             padding: "clamp(8px, 1.5vw, 16px)",
             borderRadius: "12px",
             display: "flex",
-            flexDirection: windowDimensions.width < 768 ? "column" : "row",
-            gap: "clamp(8px, 0.8vw, 12px)",
+            flexDirection: "column",
+            gap: "clamp(12px, 1.5vw, 16px)",
             boxShadow: "0 4px 20px rgba(0, 0, 0, 0.08)",
             backdropFilter: "blur(8px)",
-            maxWidth: windowDimensions.width < 500 ? "calc(100% - 32px)" : "auto",
+            maxWidth: "min(95%, 800px)",
+            width: "fit-content",
+            justifyContent: "center",
             transition: "all 0.2s ease-in-out",
+            maxHeight: "calc(100vh - 40px)",
+            overflow: "visible",
+            pointerEvents: "auto", // Ensures clicks are captured by this element
         }}
+        onClick={(e) => e.stopPropagation()} // Prevent clicks from propagating to the map
       >
-         <button
+        {/* Selection Tools Row */}
+        <div style={{
+          display: "flex",
+          flexDirection: windowDimensions.width < 600 ? "column" : "row",
+          gap: "clamp(8px, 0.8vw, 12px)",
+          justifyContent: "center",
+        }}>
+          <button
             onClick={() => setInteractionMode("selectStartPoint")}
             disabled={isLoadingPath || interactionMode === "selectStartPoint"}
             style={getButtonStyle(interactionMode === "selectStartPoint", isLoadingPath)}
-         >
+          >
             Select Start Point
-         </button>
+          </button>
           <button
             onClick={() => setInteractionMode("drawSafeZone")}
             disabled={isLoadingPath || interactionMode === "drawSafeZone"}
@@ -505,10 +519,18 @@ export default function App() {
             onClick={() => setInteractionMode("drawExclusionZone")}
             disabled={isLoadingPath || interactionMode === "drawExclusionZone"}
             style={getButtonStyle(interactionMode === "drawExclusionZone", isLoadingPath)}
-         >
+          >
             Draw Exclusion Zone
-         </button>
+          </button>
+        </div>
 
+        {/* Action Tools Row */}
+        <div style={{
+          display: "flex",
+          flexDirection: windowDimensions.width < 600 ? "column" : "row",
+          gap: "clamp(8px, 0.8vw, 12px)",
+          justifyContent: "center",
+        }}>
           <button
             onClick={handleFindPath}
             disabled={isLoadingPath || !currentStartPoint}
@@ -522,7 +544,7 @@ export default function App() {
                     ? "0 2px 8px rgba(16, 185, 129, 0.4)"
                     : "0 1px 2px rgba(0, 0, 0, 0.05)",
             }}
-        >
+          >
             Find Path
           </button>
 
@@ -545,79 +567,84 @@ export default function App() {
                 whiteSpace: "nowrap",
                 minWidth: "80px",
             }}
-            >
-                Reset
-            </button>
+          >
+            Reset
+          </button>
 
-            {/* === ADDED: Save/Load Buttons === */}
-            <button
-              onClick={handleSaveZones}
-              disabled={isSavingZones || isLoadingZones}
-              style={{
-                background: "#F3F4F6",
-                color: "#1F2937",
-                fontWeight: 500,
-                padding: "10px 14px",
-                borderRadius: "8px",
-                border: "1px solid rgba(209, 213, 219, 0.8)",
-                cursor: isSavingZones || isLoadingZones ? "default" : "pointer",
-                transition: "all 0.2s ease",
-                boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)",
-                opacity: isSavingZones || isLoadingZones ? 0.6 : 1,
-                fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
-                flexShrink: 0,
-                whiteSpace: "nowrap",
-                minWidth: "80px",
-              }}
-            >
-              {isSavingZones ? 'Saving...' : 'Save Zones'}
-            </button>
-            <button
-              onClick={handleLoadZones}
-              disabled={isSavingZones || isLoadingZones}
-              style={{
-                background: "#F3F4F6",
-                color: "#1F2937",
-                fontWeight: 500,
-                padding: "10px 14px",
-                borderRadius: "8px",
-                border: "1px solid rgba(209, 213, 219, 0.8)",
-                cursor: isSavingZones || isLoadingZones ? "default" : "pointer",
-                transition: "all 0.2s ease",
-                boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)",
-                opacity: isSavingZones || isLoadingZones ? 0.6 : 1,
-                fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
-                flexShrink: 0,
-                whiteSpace: "nowrap",
-                minWidth: "80px",
-              }}
-            >
-              {isLoadingZones ? 'Loading...' : 'Load Zones'}
-            </button>
-            {/* === END ADDED BUTTONS === */}
-
+          {/* Save/Load Buttons */}
+          <button
+            onClick={handleSaveZones}
+            disabled={isSavingZones || isLoadingZones}
+            style={{
+              background: "#F3F4F6",
+              color: "#1F2937",
+              fontWeight: 500,
+              padding: "10px 14px",
+              borderRadius: "8px",
+              border: "1px solid rgba(209, 213, 219, 0.8)",
+              cursor: isSavingZones || isLoadingZones ? "default" : "pointer",
+              transition: "all 0.2s ease",
+              boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)",
+              opacity: isSavingZones || isLoadingZones ? 0.6 : 1,
+              fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
+              flexShrink: 0,
+              whiteSpace: "nowrap",
+              minWidth: "80px",
+            }}
+          >
+            {isSavingZones ? 'Saving...' : 'Save Zones'}
+          </button>
+          <button
+            onClick={handleLoadZones}
+            disabled={isSavingZones || isLoadingZones}
+            style={{
+              background: "#F3F4F6",
+              color: "#1F2937",
+              fontWeight: 500,
+              padding: "10px 14px",
+              borderRadius: "8px",
+              border: "1px solid rgba(209, 213, 219, 0.8)",
+              cursor: isSavingZones || isLoadingZones ? "default" : "pointer",
+              transition: "all 0.2s ease",
+              boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)",
+              opacity: isSavingZones || isLoadingZones ? 0.6 : 1,
+              fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
+              flexShrink: 0,
+              whiteSpace: "nowrap",
+              minWidth: "80px",
+            }}
+          >
+            {isLoadingZones ? 'Loading...' : 'Load Zones'}
+          </button>
+        </div>
+        
+        {/* Status Messages */}
+        <div style={{ 
+          display: "flex", 
+          justifyContent: "center",
+          flexWrap: "wrap",
+          gap: "12px"
+        }}>
           {isLoadingPath && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              color: "#3B82F6",
+              fontWeight: 500,
+              fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
+            }}>
               <div style={{
-                display: "flex",
-                alignItems: "center",
-                color: "#3B82F6",
-                fontWeight: 500,
-                fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
-                marginLeft: "4px",
-              }}>
-                <div style={{
-                  width: "16px",
-                  height: "16px",
-                  borderRadius: "50%",
-                  border: "2px solid rgba(59, 130, 246, 0.2)",
-                  borderTopColor: "#3B82F6",
-                  animation: "spin 0.8s linear infinite",
-                  marginRight: "8px",
-                }}></div>
-                <span>Finding path...</span>
-              </div>
+                width: "16px",
+                height: "16px",
+                borderRadius: "50%",
+                border: "2px solid rgba(59, 130, 246, 0.2)",
+                borderTopColor: "#3B82F6",
+                animation: "spin 0.8s linear infinite",
+                marginRight: "8px",
+              }}></div>
+              <span>Finding path...</span>
+            </div>
           )}
-          {/* === ADDED: Zone Message Display === */}
           {zoneMessage && (
             <div style={{
               display: "flex",
@@ -625,12 +652,11 @@ export default function App() {
               color: "#1F2937",
               fontWeight: 500,
               fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
-              marginLeft: "4px",
             }}>
               <span>{zoneMessage}</span>
             </div>
           )}
-          {/* === END ADDED ZONE MESSAGE DISPLAY === */}
+        </div>
       </div>
 
       <DeckGL
@@ -641,7 +667,16 @@ export default function App() {
           maxZoom: 20,
           bearing: 0,
         }}
-        controller={true}
+        controller={{
+          scrollZoom: {
+            smooth: true,
+            speed: 0.01,
+            around: 'center'
+          },
+          doubleClickZoom: !interactionMode.startsWith("draw"),
+          dragPan: true,
+          touchZoom: true
+        }}
         layers={layers}
         onClick={handleMapClick}
       >
@@ -682,7 +717,8 @@ export default function App() {
       whiteSpace: "nowrap",
       overflow: "hidden",
       textOverflow: "ellipsis",
-      minWidth: "120px",
+      minWidth: windowDimensions.width < 500 ? "80px" : "120px",
+      maxWidth: windowDimensions.width < 500 ? "100px" : "auto",
       opacity: isDisabled && !isActive ? 0.6 : 1,
     };
   }
