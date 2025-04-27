@@ -42,3 +42,5 @@ next-env.d.ts
 
 public/region_road_-519005271989780755.geojson
 __pycache__/
+env/
+venv/
