@@ -61,6 +61,10 @@ export default function App() {
   const [isLoadingZones, setIsLoadingZones] = useState<boolean>(false);
   const [zoneMessage, setZoneMessage] = useState<string | null>(null);
   // === END ADDED STATE ===
+  // === ADDED: State for send operation ===
+  const [isSending, setIsSending] = useState<boolean>(false);
+  const [sendMessage, setSendMessage] = useState<string | null>(null);
+  // === END ADDED STATE ===
 
   // --- Effects ---
   useEffect(() => {
@@ -376,6 +380,31 @@ export default function App() {
   }, []);
   // === END ADDED LOAD FUNCTION ===
 
+  // === ADDED: Function to handle Send operation ===
+  const handleSend = useCallback(async () => {
+    if (isSending) return;
+    setIsSending(true);
+    setSendMessage("Sending...");
+    
+    // Simulate API call with timeout
+    try {
+      // In a real implementation, this would be an actual API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      setSendMessage("Successfully sent!");
+      console.log("Send operation completed");
+    } catch (error) {
+      console.error("Error during send operation:", error);
+      // Type check before accessing message
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      setSendMessage(`Error: ${errorMessage}`);
+    } finally {
+      setIsSending(false);
+      // Clear message after a delay
+      setTimeout(() => setSendMessage(null), 3000);
+    }
+  }, [isSending]);
+  // === END ADDED SEND FUNCTION ===
 
   // --- Layer Definitions ---
    const layers = [
@@ -469,6 +498,39 @@ export default function App() {
   // --- Render ---
   return (
     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
+      <h1 style={{
+        position: "absolute",
+        top: "20px",
+        left: "50%",
+        transform: "translateX(-50%)",
+        color: "white",
+        textShadow: "0 2px 4px rgba(0, 0, 0, 0.5)",
+        fontSize: "clamp(1.5rem, 3vw, 2.5rem)",
+        fontWeight: "700",
+        margin: 0,
+        padding: "8px 16px",
+        borderRadius: "8px",
+        background: "rgba(0, 0, 0, 0.4)",
+        backdropFilter: "blur(4px)",
+        zIndex: 10,
+        textAlign: "center",
+        letterSpacing: "0.5px",
+        display: "flex",
+        alignItems: "center",
+        gap: "12px"
+      }}>
+        <img 
+          src="/logo.png" 
+          alt="Guardian Grid Logo" 
+          style={{
+            height: "clamp(2rem, 4vw, 3rem)",
+            width: "auto",
+            objectFit: "contain"
+          }}
+        />
+        Guardian Grid SF
+      </h1>
+      
       <div
          style={{
             position: "absolute",
@@ -571,6 +633,30 @@ export default function App() {
             Reset
           </button>
 
+          {/* Send Button */}
+          <button
+            onClick={handleSend}
+            disabled={isSending}
+            style={{
+              background: isSending ? "#F3F4F6" : "linear-gradient(135deg, #EF4444, #DC2626)",
+              color: "white",
+              fontWeight: 500,
+              padding: "10px 14px",
+              borderRadius: "8px",
+              border: "none",
+              cursor: isSending ? "default" : "pointer",
+              transition: "all 0.2s ease",
+              boxShadow: isSending ? "0 1px 2px rgba(0, 0, 0, 0.05)" : "0 2px 8px rgba(220, 38, 38, 0.4)",
+              opacity: isSending ? 0.7 : 1,
+              fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
+              flexShrink: 0,
+              whiteSpace: "nowrap",
+              minWidth: "80px",
+            }}
+          >
+            {isSending ? 'Sending...' : 'Send'}
+          </button>
+
           {/* Save/Load Buttons */}
           <button
             onClick={handleSaveZones}
@@ -654,6 +740,17 @@ export default function App() {
               fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
             }}>
               <span>{zoneMessage}</span>
+            </div>
+          )}
+          {sendMessage && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              color: sendMessage.includes("Error") ? "#DC2626" : "#047857",
+              fontWeight: 500,
+              fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
+            }}>
+              <span>{sendMessage}</span>
             </div>
           )}
         </div>
