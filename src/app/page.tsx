@@ -92,7 +92,7 @@ export default function App() {
           // Add new GeoJsonLayer for roads
           new GeoJsonLayer({
             id: "region-roads-layer",
-            data: "/region_road_-519005271989780755.geojson", // Path relative to public dir
+            data: "/road_data.geojson", // Path relative to public dir
             getLineColor: [255, 0, 0, 200], // Red roads
             getLineWidth: 2,
             lineWidthMinPixels: 1,
