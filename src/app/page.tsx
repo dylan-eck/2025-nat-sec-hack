@@ -10,7 +10,10 @@ import { PickingInfo } from "@deck.gl/core";
 import { Feature, FeatureCollection, Polygon, Position } from "geojson";
 
 export default function App() {
-  const [drawMode, setDrawMode] = useState(false);
+  type InteractionMode = "selectPoints" | "drawPolygon";
+  const [interactionMode, setInteractionMode] =
+    useState<InteractionMode>("selectPoints");
+
   const [drawnFeatures, setDrawnFeatures] = useState<
     FeatureCollection<Polygon>
   >({
@@ -85,11 +88,20 @@ export default function App() {
     setEndPoint(null);
     setShortestPath(null);
     setIsLoadingPath(false);
+    setInteractionMode("selectPoints");
   };
 
   const handleMapClick = useCallback(
     ({ coordinate, layer }: PickingInfo) => {
-      if (layer?.id === "editable-geojson" || drawMode || isLoadingPath) {
+      if (interactionMode !== "selectPoints" || isLoadingPath) {
+        console.log(
+          `Map click ignored: Mode is ${interactionMode}, Loading: ${isLoadingPath}`
+        );
+        return;
+      }
+
+      if (layer?.id === "editable-geojson") {
+        console.log("Map click ignored: Clicked on editable layer.");
         return;
       }
 
@@ -116,7 +128,7 @@ export default function App() {
         setShortestPath(null);
       }
     },
-    [startPoint, endPoint, drawMode, fetchShortestPath, isLoadingPath]
+    [interactionMode, startPoint, endPoint, fetchShortestPath, isLoadingPath]
   );
 
   return (
@@ -129,39 +141,32 @@ export default function App() {
           background: "white",
           padding: "5px",
           borderRadius: "3px",
+          display: "flex",
+          gap: "5px",
         }}
       >
         <button
-          onClick={() => setDrawMode((prev) => !prev)}
-          disabled={isLoadingPath}
+          onClick={() => setInteractionMode("selectPoints")}
+          disabled={isLoadingPath || interactionMode === "selectPoints"}
+          style={{
+            fontWeight: interactionMode === "selectPoints" ? "bold" : "normal",
+          }}
         >
-          {drawMode ? "Finish Drawing" : "Draw Polygon"}
+          Select Path Points
         </button>
         <button
-          onClick={resetSelection}
-          style={{ marginLeft: "5px" }}
-          disabled={isLoadingPath}
+          onClick={() => setInteractionMode("drawPolygon")}
+          disabled={isLoadingPath || interactionMode === "drawPolygon"}
+          style={{
+            fontWeight: interactionMode === "drawPolygon" ? "bold" : "normal",
+          }}
         >
-          Reset Points
+          Draw Exclusion Zone
         </button>
-        {isLoadingPath && (
-          <span style={{ marginLeft: "10px" }}> Finding path...</span>
-        )}
-        {!isLoadingPath && startPoint && !endPoint && (
-          <span style={{ marginLeft: "10px" }}>
-            Click map to select end point.
-          </span>
-        )}
-        {!isLoadingPath && startPoint && endPoint && (
-          <span style={{ marginLeft: "10px" }}>
-            Click map to reset start point.
-          </span>
-        )}
-        {!isLoadingPath && !startPoint && (
-          <span style={{ marginLeft: "10px" }}>
-            Click map to select start point.
-          </span>
-        )}
+        <button onClick={resetSelection} disabled={isLoadingPath}>
+          Reset
+        </button>
+        {isLoadingPath && <span> Finding path...</span>}
       </div>
       <DeckGL
         initialViewState={{
@@ -173,17 +178,18 @@ export default function App() {
         }}
         controller={true}
         layers={[
-          new EditableGeoJsonLayer({
-            id: "editable-geojson",
-            data: drawnFeatures,
-            mode: drawMode ? new DrawPolygonMode() : null,
-            selectedFeatureIndexes: [],
-            onEdit: ({ updatedData }) => setDrawnFeatures(updatedData),
-            pickable: !drawMode,
-            getFillColor: [0, 0, 255, 100],
-            getLineColor: [0, 0, 255, 255],
-            getLineWidth: 2,
-          }),
+          interactionMode === "drawPolygon" &&
+            new EditableGeoJsonLayer({
+              id: "editable-geojson",
+              data: drawnFeatures,
+              mode: new DrawPolygonMode(),
+              selectedFeatureIndexes: [],
+              onEdit: ({ updatedData }) => setDrawnFeatures(updatedData),
+              pickable: true,
+              getFillColor: [0, 0, 255, 100],
+              getLineColor: [0, 0, 255, 255],
+              getLineWidth: 2,
+            }),
           new GeoJsonLayer({
             id: "region-roads-layer",
             data: "/road_data.geojson",
@@ -219,12 +225,23 @@ export default function App() {
               getWidth: 5,
               widthMinPixels: 3,
             }),
+          interactionMode !== "drawPolygon" &&
+            drawnFeatures.features.length > 0 &&
+            new GeoJsonLayer({
+              id: "drawn-polygons-display",
+              data: drawnFeatures,
+              getFillColor: [0, 0, 255, 50],
+              getLineColor: [0, 0, 255, 150],
+              getLineWidth: 1,
+              pickable: false,
+            }),
         ].filter(Boolean)}
         onClick={handleMapClick}
       >
         <Map
           mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN}
           mapStyle="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+          doubleClickZoom={interactionMode !== "drawPolygon"}
         />
       </DeckGL>
     </div>
