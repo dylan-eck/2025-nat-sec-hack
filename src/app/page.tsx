@@ -38,72 +38,98 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const [startPoint, setStartPoint] = useState<Position | null>(null);
-  const [endPoint, setEndPoint] = useState<Position | null>(null);
-  const [shortestPath, setShortestPath] = useState<Position[] | null>(null);
+  // State for multiple independent path requests
+  interface PathRequest {
+    id: number;
+    start: Position;
+    end: Position;
+    path: Position[] | null;
+  }
+  const [pathRequests, setPathRequests] = useState<PathRequest[]>([]);
+  const [currentStartPoint, setCurrentStartPoint] = useState<Position | null>(null);
+  const [nextRequestId, setNextRequestId] = useState(0); // Simple ID generator
+
   const [isLoadingPath, setIsLoadingPath] = useState(false);
 
-  const fetchShortestPath = useCallback(
-    async (start: Position, end: Position) => {
-      if (!start || !end) return;
-
-      setIsLoadingPath(true);
-      setShortestPath(null);
-
-      const polygons = drawnFeatures.features
-        .filter((f: Feature<Polygon>) => f.geometry.type === "Polygon")
-        .map((f: Feature<Polygon>) => ({
-          coordinates: f.geometry.coordinates[0],
-        }));
-
+  const fetchShortestPathSegment = useCallback(
+    async (start: Position, end: Position, polygons: any[]) => {
       const requestBody = {
         start_point: { longitude: start[0], latitude: start[1] },
         end_point: { longitude: end[0], latitude: end[1] },
         polygons: polygons,
       };
 
-      console.log("Sending path request:", requestBody);
+      console.log("Sending path segment request:", requestBody);
+      const response = await fetch("http://127.0.0.1:8080/find_path", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
 
-      try {
-        const response = await fetch("http://127.0.0.1:8080/find_path", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(
-            errorData.detail || `HTTP error! status: ${response.status}`
-          );
-        }
-
-        const data = await response.json();
-        console.log("Path response:", data);
-
-        if (data.path_found && data.path_coordinates) {
-          setShortestPath(data.path_coordinates);
-        } else {
-          alert(`Path finding failed: ${data.message}`);
-        }
-      } catch (error) {
-        console.error("Error fetching shortest path:", error);
-        alert(
-          `Error fetching shortest path: ${
-            error instanceof Error ? error.message : String(error)
-          }`
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.detail || `HTTP error! status: ${response.status}`
         );
-      } finally {
-        setIsLoadingPath(false);
+      }
+
+      const data = await response.json();
+      console.log("Path segment response:", data);
+
+      if (data.path_found && data.path_coordinates) {
+        return data.path_coordinates;
+      } else {
+        console.warn(`Path segment finding failed: ${data.message}`);
+        return null; // Indicate failure for this segment
       }
     },
-    [drawnFeatures]
+    [] // No dependencies as it's a pure fetch function now
   );
 
+  // Function to fetch a single path and update the state
+  const fetchSinglePath = useCallback(async (id: number, start: Position, end: Position) => {
+    setIsLoadingPath(true);
+    const polygons = drawnFeatures.features
+      .filter((f: Feature<Polygon>) => f.geometry.type === "Polygon")
+      .map((f: Feature<Polygon>) => ({ coordinates: f.geometry.coordinates[0] }));
+
+    try {
+      console.log(`Fetching path for request ${id}:`, start, end);
+      const segment = await fetchShortestPathSegment(start, end, polygons);
+      
+      setPathRequests(currentRequests => 
+        currentRequests.map(req => 
+          req.id === id ? { ...req, path: segment } : req
+        )
+      );
+      
+      if (!segment) {
+         alert(`Failed to find path for request ${id}.`);
+      }
+
+    } catch (error) {
+      console.error(`Error fetching path for request ${id}:`, error);
+      alert(
+        `Error fetching path: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      // Optionally mark the request as failed or remove it
+      setPathRequests(currentRequests => 
+        currentRequests.map(req => 
+          req.id === id ? { ...req, path: null } : req // Keep request but clear path on error
+        )
+      );
+    } finally {
+      // Consider more granular loading state if needed
+      setIsLoadingPath(false);
+    }
+  }, [drawnFeatures, fetchShortestPathSegment]);
+
   const resetSelection = () => {
-    setStartPoint(null);
-    setEndPoint(null);
-    setShortestPath(null);
+    setPathRequests([]);
+    setCurrentStartPoint(null);
+    setNextRequestId(0);
     setIsLoadingPath(false);
     setInteractionMode("selectPoints");
     setDrawnFeatures({
@@ -129,27 +155,39 @@ export default function App() {
       if (!coordinate) return;
 
       const [longitude, latitude] = coordinate;
+      const clickedPoint: Position = [longitude, latitude];
 
-      if (!startPoint) {
-        console.log("Setting start point:", [longitude, latitude]);
-        setStartPoint([longitude, latitude]);
-        setEndPoint(null);
-        setShortestPath(null);
-      } else if (!endPoint) {
-        console.log("Setting end point:", [longitude, latitude]);
-        setEndPoint([longitude, latitude]);
-        fetchShortestPath(startPoint, [longitude, latitude]);
+      if (!currentStartPoint) {
+        // This is the first click (start point)
+        console.log("Setting start point:", clickedPoint);
+        setCurrentStartPoint(clickedPoint);
       } else {
-        console.log("Resetting points, setting new start point:", [
-          longitude,
-          latitude,
+        // This is the second click (end point)
+        console.log("Setting end point:", clickedPoint);
+        const newId = nextRequestId;
+        setNextRequestId(prevId => prevId + 1); // Increment ID for next request
+
+        // Add the new request pair to the state
+        setPathRequests(prevRequests => [
+          ...prevRequests,
+          { id: newId, start: currentStartPoint, end: clickedPoint, path: null },
         ]);
-        setStartPoint([longitude, latitude]);
-        setEndPoint(null);
-        setShortestPath(null);
+
+        // Fetch the path for this new pair
+        fetchSinglePath(newId, currentStartPoint, clickedPoint);
+
+        // Reset currentStartPoint to allow defining a new pair
+        setCurrentStartPoint(null);
       }
     },
-    [interactionMode, startPoint, endPoint, fetchShortestPath, isLoadingPath]
+    [
+      interactionMode, 
+      isLoadingPath, 
+      currentStartPoint, 
+      fetchSinglePath, 
+      nextRequestId, 
+      setPathRequests // Added setPathRequests dependency
+    ]
   );
 
   return (
@@ -313,30 +351,41 @@ export default function App() {
             lineWidthMinPixels: 0.5,
             pickable: false,
           }),
-          startPoint &&
-            new ScatterplotLayer({
-              id: "start-point-layer",
-              data: [{ position: startPoint }],
-              getPosition: (d: { position: Position }) => d.position,
-              getColor: [0, 255, 0, 255],
-              getSize: 100,
-              radiusMinPixels: 6,
-            }),
-          endPoint &&
-            new ScatterplotLayer({
-              id: "end-point-layer",
-              data: [{ position: endPoint }],
-              getPosition: (d: { position: Position }) => d.position,
-              getColor: [255, 0, 0, 255],
-              getSize: 100,
-              radiusMinPixels: 6,
-            }),
-          shortestPath &&
+          // Layer for all start/end points and the current start point
+          new ScatterplotLayer({
+            id: "start-end-points-layer",
+            data: [
+              // Add the current start point if it exists
+              ...(currentStartPoint
+                ? [{ position: currentStartPoint, type: "current" as const }]
+                : []),
+              // Add all start points from requests
+              ...pathRequests.map((req) => ({
+                position: req.start,
+                type: "start" as const,
+              })),
+              // Add all end points from requests
+              ...pathRequests.map((req) => ({
+                position: req.end,
+                type: "end" as const,
+              })),
+            ] as { position: Position; type: "start" | "end" | "current" }[], // Explicitly type the data array
+            getPosition: (d: { position: Position; type: string }) => d.position,
+            getColor: (d: { position: Position; type: string }) => {
+              if (d.type === "start") return [0, 255, 0, 255]; // Green for start
+              if (d.type === "end") return [255, 0, 0, 255]; // Red for end
+              return [255, 255, 0, 255]; // Yellow for current selection
+            },
+            getSize: 100,
+            radiusMinPixels: 6,
+          }),
+          // Layer for all calculated paths
+          pathRequests.length > 0 &&
             new PathLayer({
-              id: "shortest-path-layer",
-              data: [{ path: shortestPath }],
-              getPath: (d: { path: Position[] }) => d.path,
-              getColor: [0, 0, 255, 200],
+              id: "multiple-paths-layer",
+              data: pathRequests.filter(req => req.path), // Only include requests with a calculated path
+              getPath: (d: PathRequest) => d.path!,
+              getColor: [0, 0, 255, 200], // Blue for paths
               getWidth: 5,
               widthMinPixels: 3,
             }),
