@@ -188,6 +188,7 @@ async def find_path(request: PathRequest):
              start_node_lon, start_node_lat = transformer_to_wgs84.transform(start_node[0], start_node[1])
              return PathResponse(path_found=True, path_coordinates=[(start_node_lon, start_node_lat)], message=msg)
 
+<<<<<<< Updated upstream
         # 5. Calculate shortest path
         print(f"Finding path between {start_node} and {end_node}...")
         path = None
@@ -196,6 +197,97 @@ async def find_path(request: PathRequest):
             print(f"Path found with {len(path)} nodes.")
         except nx.NetworkXNoPath:
             msg = f"No path found between the selected start and end points in the accessible graph."
+=======
+        shortest_path_len = float('inf')
+        final_target_node = None
+        processed_safe_zones = 0
+
+        for i, safe_zone_input in enumerate(request.safe_zones):
+            print(f"  Processing safe zone {i+1}/{len(request.safe_zones)}...")
+            if len(safe_zone_input.coordinates) < 3:
+                print(f"    Skipping invalid safe zone polygon {i+1} (< 3 vertices).")
+                continue
+
+            # Transform coordinates and create polygon
+            safe_poly_coords_metric = [transformer_to_metric.transform(lon, lat) for lon, lat in safe_zone_input.coordinates]
+            safe_poly = Polygon(safe_poly_coords_metric)
+
+            # Calculate centroid
+            centroid = safe_poly.centroid
+            centroid_coords_metric = (centroid.x, centroid.y)
+
+            # Find nearest node in G_temp to the centroid
+            current_target_node = get_nearest_node_api(G_temp, centroid_coords_metric, node_points_base)
+
+            if current_target_node is None:
+                print(f"    Could not find node near centroid for safe zone {i+1}.")
+                continue
+
+            print(f"    Nearest node to centroid: {current_target_node}")
+
+            # Calculate path length from start_node to this potential target
+            current_path_length = float('inf')
+            try:
+                if start_node == current_target_node:
+                    current_path_length = 0
+                elif nx.has_path(G_temp, source=start_node, target=current_target_node):
+                    current_path_length = nx.shortest_path_length(G_temp, source=start_node, target=current_target_node, weight='weight')
+                else:
+                    print(f"    No path found from start node to {current_target_node}.")
+                    continue # Skip if no path exists
+
+                print(f"    Path length to this target: {current_path_length:.2f}")
+
+                # Check if this path is the shortest found so far
+                if current_path_length < shortest_path_len:
+                    shortest_path_len = current_path_length
+                    final_target_node = current_target_node
+                    print(f"    New shortest path found to target {final_target_node} (via safe zone {i+1}). Length: {shortest_path_len:.2f}")
+                processed_safe_zones += 1
+
+            except nx.NodeNotFound as e:
+                 # Should not happen if get_nearest_node_api worked, but handle defensively
+                 print(f"    Node not found error during path length calculation: {e}")
+                 continue
+            except Exception as e:
+                 print(f"    Unexpected error calculating path length for target {current_target_node}: {e}")
+                 continue
+
+        # 5. Calculate final path and return response
+        if final_target_node is not None:
+            print(f"Shortest path identified to target node {final_target_node} (length: {shortest_path_len:.2f}). Calculating node path...")
+            try:
+                # Calculate the actual path (list of nodes)
+                path_nodes = nx.shortest_path(G_temp, source=start_node, target=final_target_node, weight='weight')
+                
+                # Transform path nodes back to WGS84 coordinates
+                path_coords_wgs84 = []
+                for node in path_nodes:
+                    if node in node_points_base:
+                        metric_x, metric_y = node_points_base[node].x, node_points_base[node].y
+                        lon, lat = transformer_to_wgs84.transform(metric_x, metric_y)
+                        path_coords_wgs84.append([lon, lat])
+                    else:
+                        print(f"Warning: Node {node} from shortest path not found in node_points_base.")
+                
+                calculation_time = time.perf_counter() - request_start_time
+                msg = f"Path found to nearest safe zone in {calculation_time:.4f} seconds. Nodes: {len(path_coords_wgs84)}"
+                print(msg)
+                return PathResponse(path_found=True, path=path_coords_wgs84, message=msg)
+                
+            except nx.NetworkXNoPath:
+                msg = f"Internal Error: No path exists from start node {start_node} to final target node {final_target_node}, even though length was calculated."
+                print(msg)
+                return PathResponse(path_found=False, message=msg)
+            except Exception as final_path_err:
+                msg = f"Error calculating final shortest path or transforming coordinates: {final_path_err}"
+                print(msg)
+                raise HTTPException(status_code=500, detail=msg)
+        else:
+            # This case means no path was found from the start node to *any* safe zone centroid node
+            calculation_time = time.perf_counter() - request_start_time
+            msg = f"Could not find a path from the start location to any of the provided safe zones' accessible nodes. Searched {len(request.safe_zones)} zones. Time: {calculation_time:.4f}s"
+>>>>>>> Stashed changes
             print(msg)
             return PathResponse(path_found=False, message=msg)
         except nx.NodeNotFound:
