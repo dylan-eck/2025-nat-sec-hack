@@ -117,7 +117,7 @@ class PolygonInput(BaseModel):
 
 class PathRequest(BaseModel):
     start_point: PointInput
-    end_point: PointInput
+    safe_zones: List[PolygonInput] = Field(..., description="List of polygons defining target safe zones")
     polygons: List[PolygonInput] = Field([], description="List of polygons defining inaccessible areas")
 
 class PathResponse(BaseModel):
@@ -129,21 +129,20 @@ class PathResponse(BaseModel):
 @app.post("/find_path", response_model=PathResponse)
 async def find_path(request: PathRequest):
     """
-    Finds the shortest path between a start and end point, avoiding nodes within specified polygons.
+    Finds the shortest path between a start point and the nearest point within any of the specified safe zone polygons,
+    avoiding nodes within specified exclusion polygons.
     Coordinates are expected in WGS84 (longitude, latitude).
     """
     if G_base is None or node_points_base is None or transformer_to_metric is None or transformer_to_wgs84 is None:
         raise HTTPException(status_code=503, detail="Server error: Graph data not loaded.")
 
     request_start_time = time.perf_counter()
-    print("Received path request...")
+    print("Received path request (to safe zone)...")
 
     try:
-        # 1. Transform start/end points to metric CRS
+        # 1. Transform start point to metric CRS
         start_lon, start_lat = request.start_point.longitude, request.start_point.latitude
-        end_lon, end_lat = request.end_point.longitude, request.end_point.latitude
         start_proj_x, start_proj_y = transformer_to_metric.transform(start_lon, start_lat)
-        end_proj_x, end_proj_y = transformer_to_metric.transform(end_lon, end_lat)
 
         # 2. Create a temporary copy of the graph for modification
         G_temp = G_base.copy()
@@ -154,73 +153,137 @@ async def find_path(request: PathRequest):
             print(f"Processing {len(request.polygons)} exclusion polygons...")
             for poly_input in request.polygons:
                 if len(poly_input.coordinates) < 3:
-                    print(f"Skipping invalid polygon with < 3 vertices: {poly_input.coordinates}")
+                    print(f"Skipping invalid exclusion polygon with < 3 vertices: {poly_input.coordinates}")
                     continue
-
-                # Transform polygon vertices to metric CRS
                 poly_coords_metric = [transformer_to_metric.transform(lon, lat) for lon, lat in poly_input.coordinates]
                 exclusion_poly = Polygon(poly_coords_metric)
-
-                # Find nodes within this polygon
-                for node, node_point in node_points_base.items(): # Check against base node points
+                for node, node_point in node_points_base.items():
                     if node in G_temp and exclusion_poly.contains(node_point):
                         nodes_to_remove.add(node)
 
             if nodes_to_remove:
-                print(f"Removing {len(nodes_to_remove)} nodes based on polygons...")
+                print(f"Removing {len(nodes_to_remove)} nodes based on exclusion polygons...")
                 G_temp.remove_nodes_from(list(nodes_to_remove))
             else:
-                print("No nodes found within specified polygons.")
+                print("No nodes found within specified exclusion polygons.")
 
-        # 4. Find nearest nodes in the (potentially modified) temporary graph
+        # 4. Find nearest node to the start point in the accessible graph
         start_node = get_nearest_node_api(G_temp, (start_proj_x, start_proj_y), node_points_base)
-        end_node = get_nearest_node_api(G_temp, (end_proj_x, end_proj_y), node_points_base)
 
-        if start_node is None or end_node is None:
-            msg = "Could not find nearest start or end node in the accessible graph area."
+        if start_node is None:
+            msg = "Could not find nearest start node in the accessible graph area."
             print(msg)
             return PathResponse(path_found=False, message=msg)
 
-        if start_node == end_node:
-             msg = "Start and end nodes are the same."
-             print(msg)
-             # Return a path with just the single point
-             start_node_lon, start_node_lat = transformer_to_wgs84.transform(start_node[0], start_node[1])
-             return PathResponse(path_found=True, path_coordinates=[(start_node_lon, start_node_lat)], message=msg)
+        # 5. Identify potential target nodes within safe zones
+        target_nodes = set()
+        safe_zone_polygons_metric = []
+        print(f"Processing {len(request.safe_zones)} safe zone polygons...")
+        if not request.safe_zones:
+             raise HTTPException(status_code=400, detail="At least one safe zone must be provided.")
 
-        # 5. Calculate shortest path
-        print(f"Finding path between {start_node} and {end_node}...")
-        path = None
-        try:
-            path = nx.shortest_path(G_temp, source=start_node, target=end_node, weight='weight')
-            print(f"Path found with {len(path)} nodes.")
-        except nx.NetworkXNoPath:
-            msg = f"No path found between the selected start and end points in the accessible graph."
+        for poly_input in request.safe_zones:
+            if len(poly_input.coordinates) < 3:
+                print(f"Skipping invalid safe zone polygon with < 3 vertices: {poly_input.coordinates}")
+                continue
+            poly_coords_metric = [transformer_to_metric.transform(lon, lat) for lon, lat in poly_input.coordinates]
+            safe_poly = Polygon(poly_coords_metric)
+            safe_zone_polygons_metric.append(safe_poly)
+
+            # Find nodes within this safe zone polygon that are still in G_temp
+            for node, node_point in node_points_base.items():
+                if node in G_temp and safe_poly.contains(node_point):
+                     # Check if the node is reachable from the start node
+                     if nx.has_path(G_temp, source=start_node, target=node):
+                        target_nodes.add(node)
+
+        if not target_nodes:
+            msg = "No accessible graph nodes found within any of the specified safe zones."
             print(msg)
             return PathResponse(path_found=False, message=msg)
-        except nx.NodeNotFound:
-             # This might happen if start/end node was removed *after* nearest node check - race condition unlikely here but possible
-             msg = "Start or end node not found in the graph (possibly removed by a polygon)."
-             print(msg)
-             return PathResponse(path_found=False, message=msg)
 
-        # 6. Transform path back to WGS84
-        path_latlon = [transformer_to_wgs84.transform(x, y) for x, y in path]
+        print(f"Found {len(target_nodes)} potential target nodes within safe zones.")
+
+        # 6. Find the shortest path to *any* of the target nodes
+        shortest_path = None
+        shortest_path_len = float('inf')
+        final_target_node = None
+
+        print(f"Calculating shortest paths from {start_node} to {len(target_nodes)} potential targets...")
+        # Use multi_source_dijkstra for efficiency if available and suitable,
+        # or iterate if simpler/required by specific logic.
+        # Let's iterate for clarity first.
+        paths_found_count = 0
+        for target_node in target_nodes:
+             if start_node == target_node: # Handle case where start is already in a safe zone
+                 if 0 < shortest_path_len:
+                     shortest_path = [start_node]
+                     shortest_path_len = 0
+                     final_target_node = start_node
+                 continue # Skip path calculation if start==target
+
+             try:
+                # Use path length (sum of weights) for comparison
+                length = nx.shortest_path_length(G_temp, source=start_node, target=target_node, weight='weight')
+                if length < shortest_path_len:
+                     shortest_path_len = length
+                     # We only retrieve the full path if it's currently the shortest to save computation
+                     # shortest_path = nx.shortest_path(G_temp, source=start_node, target=target_node, weight='weight') # Defer getting the full path
+                     final_target_node = target_node
+                     paths_found_count += 1
+             except nx.NetworkXNoPath:
+                 # This shouldn't happen due to the has_path check earlier, but handle defensively
+                 print(f"Warning: No path found to target {target_node} despite initial check.")
+                 continue
+             except nx.NodeNotFound:
+                 print(f"Warning: Node {target_node} not found during path calculation.")
+                 continue
+
+        if final_target_node is None:
+             # This could happen if the only target node was the start node itself and no path calculation was done
+             if start_node in target_nodes:
+                 shortest_path = [start_node]
+                 final_target_node = start_node
+                 print(f"Start node {start_node} is within a safe zone.")
+             else:
+                 # Or if all paths failed for some reason
+                 msg = f"Could not find a valid path to any target node in safe zones from {start_node}."
+                 print(msg)
+                 return PathResponse(path_found=False, message=msg)
+
+        # Now calculate the actual shortest path once the best target is known
+        if start_node == final_target_node:
+             shortest_path = [start_node]
+             print(f"Optimal path is just the start node (already in safe zone): {start_node}")
+        else:
+             try:
+                 shortest_path = nx.shortest_path(G_temp, source=start_node, target=final_target_node, weight='weight')
+                 print(f"Shortest path found to target {final_target_node} with length {shortest_path_len:.2f} and {len(shortest_path)} nodes.")
+             except (nx.NetworkXNoPath, nx.NodeNotFound):
+                 # Should not happen if logic above is correct
+                  msg = f"Failed to retrieve the final shortest path to {final_target_node}."
+                  print(msg)
+                  return PathResponse(path_found=False, message=msg)
+
+        # 7. Transform path back to WGS84
+        path_latlon = [transformer_to_wgs84.transform(node_point[0], node_point[1]) for node_point in shortest_path] # Fixed to use node coordinates
 
         request_end_time = time.perf_counter()
-        print(f"Path calculated in {request_end_time - request_start_time:.3f} seconds.")
+        print(f"Path to safe zone calculated in {request_end_time - request_start_time:.3f} seconds.")
 
         return PathResponse(
             path_found=True,
             path_coordinates=path_latlon,
-            message="Shortest path calculated successfully."
+            message="Shortest path to a safe zone calculated successfully."
         )
 
+    except HTTPException as http_exc:
+        # Re-raise HTTP exceptions directly
+        raise http_exc
     except Exception as e:
-        print(f"An unexpected error occurred during path finding: {e}")
-        # Log the full traceback in a real application
+        print(f"An unexpected error occurred during path finding to safe zone: {e}")
         # import traceback
-        # print(traceback.format_exc())
+        # print(traceback.format_exc()) # Uncomment for debugging
         raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
 
 # --- Add entry point to run with Uvicorn (for simple execution) ---
