@@ -20,6 +20,9 @@ interface LoadedZonesData {
 }
 
 const API_URL = "http://127.0.0.1:8080";
+// Add environment variables for SMS
+const TEXTBELT_API_KEY = process.env.NEXT_PUBLIC_TEXTBELT;
+const EMERGENCY_PHONE = process.env.NEXT_PUBLIC_EMERGENCY_PHONE;
 
 export default function App() {
   // --- Types ---
@@ -115,6 +118,42 @@ export default function App() {
     },
     [] // No dependencies needed
   );
+
+  // --- Helper Function: Generate Google Maps Link ---
+  /**
+   * Generate a Google Maps route link from an array of [latitude, longitude] pairs.
+   * Note: This function expects points in [latitude, longitude] order.
+   *
+   * @param points Array of coordinates in [lat, lng] order.
+   * @returns A share-ready Google Maps directions URL.
+   */
+  function generateGoogleMapsRouteLink(points: Array<[number, number]>): string {
+    if (!Array.isArray(points) || points.length < 2) {
+      throw new Error('Need at least 2 points to create a route');
+    }
+
+    // Start & end
+    const origin = `${points[0][0]},${points[0][1]}`;
+    const destination = `${points[points.length - 1][0]},${points[points.length - 1][1]}`;
+
+    // Intermediate way-points (everything except first & last)
+    const waypoints = points
+      .slice(1, -1)
+      .map(([lat, lng]) => `${lat},${lng}`)
+      .join('|'); // Google expects vertical-bar separators
+
+    // Assemble URL
+    let url =
+      `https://www.google.com/maps/dir/?api=1` +
+      `&origin=${encodeURIComponent(origin)}` +
+      `&destination=${encodeURIComponent(destination)}`;
+
+    if (waypoints) {
+      url += `&waypoints=${encodeURIComponent(waypoints)}`;
+    }
+
+    return url;
+  }
 
   // --- Action Handlers ---
 
@@ -380,31 +419,65 @@ export default function App() {
   }, []);
   // === END ADDED LOAD FUNCTION ===
 
-  // === ADDED: Function to handle Send operation ===
+  // === MODIFIED: Function to handle Send operation with SMS notification ===
   const handleSend = useCallback(async () => {
     if (isSending) return;
     setIsSending(true);
-    setSendMessage("Sending...");
+    setSendMessage("Sending notification...");
     
-    // Simulate API call with timeout
     try {
-      // In a real implementation, this would be an actual API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Create evacuation message with Google Maps link if available
+      let evacuationLink = "";
+      if (pathRequests.length > 0) {
+        // Find the most recent path with valid route data
+        const latestValidRequest = [...pathRequests]
+          .reverse()
+          .find(req => req.path && req.path.length >= 2);
+          
+        if (latestValidRequest?.path) {
+          // Convert backend path format [longitude, latitude] to [latitude, longitude] for Google Maps
+          const routePoints = latestValidRequest.path.map(
+            point => [point[1], point[0]] as [number, number]
+          );
+          evacuationLink = generateGoogleMapsRouteLink(routePoints);
+        }
+      }
       
-      setSendMessage("Successfully sent!");
-      console.log("Send operation completed");
+      const message = `You are in the evacuation zone. Evacuate immediately. Access your evacuation map at: localhost:3000/location/`
+      
+      console.log(`Preparing to send evacuation SMS message`);
+      
+      // Make API call to our Next.js API route instead of directly to Textbelt
+      const response = await fetch('/api/send-sms', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: message,
+        }),
+      });
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || "Failed to send SMS");
+      }
+      
+      setSendMessage("Emergency notification sent!");
+      console.log("SMS notification sent successfully:", result);
+      
     } catch (error) {
-      console.error("Error during send operation:", error);
-      // Type check before accessing message
+      console.error("Error sending SMS notification:", error);
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       setSendMessage(`Error: ${errorMessage}`);
     } finally {
       setIsSending(false);
       // Clear message after a delay
-      setTimeout(() => setSendMessage(null), 3000);
+      setTimeout(() => setSendMessage(null), 5000);
     }
-  }, [isSending]);
-  // === END ADDED SEND FUNCTION ===
+  }, [isSending, pathRequests]);
+  // === END MODIFIED SEND FUNCTION ===
 
   // --- Layer Definitions ---
    const layers = [
