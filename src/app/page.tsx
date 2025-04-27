@@ -9,9 +9,6 @@ import { useState, useCallback, useEffect } from "react";
 import type { PickInfo } from "@deck.gl/core/lib/deck";
 import { Feature, FeatureCollection, Polygon, Position } from "geojson";
 
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-=======
 // Type matching backend API for loading zones
 interface PolygonInput {
   coordinates: Position[]; // Assuming the API sends just the array of positions for a polygon
@@ -23,15 +20,6 @@ interface LoadedZonesData {
 }
 
 const API_URL = "http://127.0.0.1:8080";
-
->>>>>>> Stashed changes
-export default function App() {
-  type InteractionMode = "selectPoints" | "drawPolygon";
-  const [interactionMode, setInteractionMode] =
-    useState<InteractionMode>("selectPoints");
-=======
-const API_URL = "http://127.0.0.1:8080";
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
 
 export default function App() {
   // --- Types ---
@@ -109,32 +97,16 @@ export default function App() {
         throw new Error(
           errorData.detail || `HTTP error! status: ${response.status}`
         );
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-      } finally {
-        setIsLoadingPath(false);
-=======
-=======
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
       }
 
       const data = await response.json();
       console.log("Path to safe zone response:", data);
 
-<<<<<<< HEAD
-      if (data.path_found && data.path) {
-        return data.path;
+      if (data.path_found && data.path) { // FIX: Check for 'path' field now
+        return data.path; // FIX: Return 'path' field
       } else {
         console.warn(`Path to safe zone finding failed: ${data.message}`);
         return null; // Indicate failure
->>>>>>> Stashed changes
-=======
-      if (data.path_found && data.path_coordinates) {
-        return data.path_coordinates;
-      } else {
-        console.warn(`Path to safe zone finding failed: ${data.message}`);
-        return null; // Indicate failure
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
       }
     },
     [] // No dependencies needed
@@ -225,77 +197,34 @@ export default function App() {
 
   // --- Map Interaction ---
   const handleMapClick = useCallback(
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-    ({ coordinate, layer }: PickingInfo) => {
-      if (interactionMode !== "selectPoints" || isLoadingPath) {
-=======
-    // Refine PickInfo type for object structure
+    // FIX: Correctly destructure PickInfo and refine type
     ({ coordinate, layer, object }: PickInfo<{ object?: { properties?: { id?: string | number } } }>) => {
       // Ignore clicks if not in selection mode or if pathfinding is in progress
       if (interactionMode !== "selectStartPoint" || isLoadingPath) {
->>>>>>> Stashed changes
-=======
-    ({ coordinate, layer }: PickInfo<any>) => {
-      if (interactionMode !== "selectStartPoint" || isLoadingPath) {
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
         console.log(
           `Map click ignored: Mode is ${interactionMode}, Loading: ${isLoadingPath}`
         );
         return;
       }
 
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-      if (layer?.id === "editable-geojson") {
-        console.log("Map click ignored: Clicked on editable layer.");
-=======
       // Ignore clicks on the editable layers themselves (the polygons)
       if (layer?.id?.startsWith("exclusion-zones-editor") || layer?.id?.startsWith("safe-zones-editor")) {
         console.log("Map click ignored: Clicked on an editable layer polygon.");
->>>>>>> Stashed changes
         return;
       }
-=======
-       if (layer?.id?.startsWith("editable-")) {
-         console.log("Map click ignored: Clicked on an editable layer.");
-         return;
-       }
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
 
       if (!coordinate) {
         console.log("Map click ignored: No coordinate data.");
         return; // No coordinate data
       }
 
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-      const [longitude, latitude] = coordinate;
-
-      if (!startPoint) {
-        console.log("Setting start point:", [longitude, latitude]);
-        setStartPoint([longitude, latitude]);
-        setEndPoint(null);
-        setShortestPath(null);
-      } else if (!endPoint) {
-        console.log("Setting end point:", [longitude, latitude]);
-        setEndPoint([longitude, latitude]);
-        fetchShortestPath(startPoint, [longitude, latitude]);
-      } else {
-        console.log("Resetting points, setting new start point:", [
-          longitude,
-          latitude,
-        ]);
-        setStartPoint([longitude, latitude]);
-        setEndPoint(null);
-        setShortestPath(null);
-=======
       // --- Handle Clicks Based on Mode ---
 
       // Check if clicking on an existing *rendered object* (like points from ScatterplotLayer)
-      if (object) {
+      if (object) { // FIX: Use 'object' directly
         console.log("Clicked on object:", object);
         // Safely access properties - check structure before accessing
+        // FIX: Use optional chaining just in case 'properties' doesn't exist
         if (object.properties && typeof object.properties.id !== 'undefined') {
           const featureId = object.properties.id;
           console.log(`Clicked on feature with id: ${featureId}`);
@@ -317,54 +246,39 @@ export default function App() {
         const clickedPoint: Position = coordinate;
         console.log("Setting start point:", clickedPoint);
         setCurrentStartPoint(clickedPoint);
->>>>>>> Stashed changes
       }
-=======
-      const clickedPoint: Position = coordinate;
-
-      console.log("Setting start point:", clickedPoint);
-      setCurrentStartPoint(clickedPoint);
-
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
     },
     [interactionMode, isLoadingPath]
   );
 
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-=======
+  // FIX: Define edit handlers using useCallback
   const onEditExclusion = useCallback(
-    // Type the event object
     (event: { updatedData: FeatureCollection<Polygon> }) => {
-      // Only update if the mode is correct to prevent state changes during other operations
       if (interactionMode === "drawExclusionZone") {
-        const updatedData = event.updatedData; // Access updatedData from event
+        const updatedData = event.updatedData;
         console.log("Exclusion Zone Edit:", updatedData);
         setDrawnExclusionFeatures(updatedData);
-      }
-    },
-    [interactionMode] // Depend on interactionMode
-  );
-
-  const onEditSafe = useCallback(
-    // Type the event object
-    (event: { updatedData: FeatureCollection<Polygon> }) => {
-      if (interactionMode === "drawSafeZone") {
-        const updatedData = event.updatedData; // Access updatedData from event
-        console.log("Safe Zone Edit:", updatedData);
-        setCommittedSafeZoneFeatures(updatedData); // Use the committed state setter
       }
     },
     [interactionMode]
   );
 
-=======
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
+  const onEditSafe = useCallback(
+    (event: { updatedData: FeatureCollection<Polygon> }) => {
+      if (interactionMode === "drawSafeZone") {
+        const updatedData = event.updatedData;
+        console.log("Safe Zone Edit:", updatedData);
+        setCommittedSafeZoneFeatures(updatedData);
+      }
+    },
+    [interactionMode]
+  );
+
   // === ADDED: Function to Save Zones ===
   const handleSaveZones = async () => {
     if (isSavingZones || isLoadingZones) return;
-    setIsSavingZones(true); 
-    setZoneMessage('Saving zones...'); 
+    setIsSavingZones(true);
+    setZoneMessage('Saving zones...');
 
     // Get current zones from state (which holds the Feature objects)
     // Extract coordinates in the format expected by the backend API
@@ -394,24 +308,23 @@ export default function App() {
         throw new Error(result.detail || 'Failed to save zones');
       }
 
-      setZoneMessage('Zones saved successfully!'); 
+      setZoneMessage('Zones saved successfully!');
       console.log('Zones saved:', result);
 
-    } catch (error: unknown) { 
+    } catch (error: unknown) {
       console.error('Error saving zones:', error);
       // Type check before accessing message
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      setZoneMessage(`Error: ${errorMessage}`); 
+      setZoneMessage(`Error: ${errorMessage}`);
     } finally {
-      setIsSavingZones(false); 
+      setIsSavingZones(false);
       // Clear message after a delay
-      setTimeout(() => setZoneMessage(null), 3000); 
+      setTimeout(() => setZoneMessage(null), 3000);
     }
   };
   // === END ADDED SAVE FUNCTION ===
 
   // === ADDED: Function to Load Zones ===
-<<<<<<< HEAD
   const handleLoadZones = useCallback(async () => {
     setIsLoadingZones(true);
     setZoneMessage("Loading zones...");
@@ -427,7 +340,7 @@ export default function App() {
 
       console.log("Loaded zones data:", loadedData);
 
-      // Convert loaded data (PolygonInput[]) back to GeoJSON FeatureCollection
+      // FIX: Convert loaded data (PolygonInput[]) back to GeoJSON FeatureCollection
       const exclusionFeatures: Feature<Polygon>[] = loadedData.exclusion.map((poly, index) => ({
         type: "Feature",
         properties: { id: `loaded-exclusion-${index}` }, // Assign some unique ID
@@ -452,6 +365,7 @@ export default function App() {
       setZoneMessage("Zones loaded successfully!");
     } catch (error) {
       console.error("Failed to load zones:", error);
+      // FIX: Use @ts-expect-error
       // @ts-expect-error TS(2571): Object is of type 'unknown'.
       setZoneMessage(`Error loading zones: ${error?.message || 'Unknown error'}`);
     } finally {
@@ -460,85 +374,6 @@ export default function App() {
       setTimeout(() => setZoneMessage(null), 3000);
     }
   }, []);
-=======
-  const handleLoadZones = async () => {
-    if (isLoadingZones || isSavingZones) return;
-    setIsLoadingZones(true); 
-    setZoneMessage('Loading zones...'); 
-
-    try {
-      const response = await fetch(`${API_URL}/load_zones`);
-      const loadedZones: any = await response.json();
-
-      if (!response.ok) {
-        // @ts-ignore - detail might be on error response json
-        throw new Error(loadedZones.detail || 'Failed to load zones');
-      }
-
-      // Clear existing drawings and state
-      setDrawnExclusionFeatures({ type: "FeatureCollection", features: [] });
-      setCommittedSafeZoneFeatures({ type: "FeatureCollection", features: [] });
-      setCurrentStartPoint(null);
-      setPathRequests([]);
-
-      // Add loaded zones to Draw and update state
-      const loadedExclusionFeatures: any[] = [];
-      const loadedSafeFeatures: any[] = [];
-
-      // Ensure loadedZones and its properties exist before iterating
-      if (loadedZones?.exclusion) {
-          loadedZones.exclusion.forEach((zone: any, index: number) => {
-              if (!zone?.coordinates) return; // Skip if coordinates are missing
-              const feature = {
-                  id: `loaded-exclusion-${Date.now()}-${index}`,
-                  type: 'Feature',
-                  properties: { type: 'exclusion' },
-                  geometry: {
-                      type: 'Polygon',
-                      coordinates: [zone.coordinates] // Wrap coordinates for GeoJSON Polygon
-                  }
-              };
-              loadedExclusionFeatures.push(feature);
-          });
-      }
-
-      if (loadedZones?.safe) {
-          loadedZones.safe.forEach((zone: any, index: number) => {
-              if (!zone?.coordinates) return; // Skip if coordinates are missing
-              const feature = {
-                  id: `loaded-safe-${Date.now()}-${index}`,
-                  type: 'Feature',
-                  properties: { type: 'safe' },
-                  geometry: {
-                      type: 'Polygon',
-                      coordinates: [zone.coordinates]
-                  }
-              };
-              loadedSafeFeatures.push(feature);
-          });
-      }
-
-      // Update state with the full Feature objects added to Draw
-      setDrawnExclusionFeatures({ type: "FeatureCollection", features: loadedExclusionFeatures });
-      setCommittedSafeZoneFeatures({ type: "FeatureCollection", features: loadedSafeFeatures });
-
-      setZoneMessage(`Loaded ${loadedExclusionFeatures.length} exclusion and ${loadedSafeFeatures.length} safe zones.`); 
-      console.log('Zones loaded:', loadedZones);
-      // Switch back to point selection mode after loading
-      setInteractionMode('selectStartPoint');
-
-    } catch (error: unknown) { 
-      console.error('Error loading zones:', error);
-      // Type check before accessing message
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      setZoneMessage(`Error: ${errorMessage}`); 
-    } finally {
-      setIsLoadingZones(false); 
-       // Clear message after a delay
-      setTimeout(() => setZoneMessage(null), 3000); 
-    }
-  };
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
   // === END ADDED LOAD FUNCTION ===
 
 
@@ -546,46 +381,28 @@ export default function App() {
    const layers = [
     interactionMode === "drawExclusionZone" &&
       new EditableGeoJsonLayer({
-<<<<<<< HEAD
         id: "exclusion-zones-editor",
         data: drawnExclusionFeatures,
         mode: new DrawPolygonMode(),
         selectedFeatureIndexes: [],
-        onEdit: onEditExclusion, // Pass the correct callback
+        onEdit: onEditExclusion, // FIX: Pass the correct callback
         visible: interactionMode === "drawExclusionZone",
         // Styling for exclusion zones
         filled: true,
-=======
-        id: "editable-exclusion-geojson",
-        data: drawnExclusionFeatures,
-        mode: new DrawPolygonMode(),
-        selectedFeatureIndexes: [],
-        onEdit: ({ updatedData }) => setDrawnExclusionFeatures(updatedData),
-        pickable: true,
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
         getFillColor: [255, 0, 0, 100],
         getLineColor: [255, 0, 0, 200],
         getLineWidth: 2,
       }),
     interactionMode === "drawSafeZone" &&
       new EditableGeoJsonLayer({
-<<<<<<< HEAD
         id: "safe-zones-editor",
         data: committedSafeZoneFeatures, // Use committed state
         mode: new DrawPolygonMode(),
         selectedFeatureIndexes: [],
-        onEdit: onEditSafe, // Pass the correct callback
+        onEdit: onEditSafe, // FIX: Pass the correct callback
         visible: interactionMode === "drawSafeZone",
         // Styling for safe zones
         filled: true,
-=======
-        id: "editable-safezone-geojson",
-        data: committedSafeZoneFeatures,
-        mode: new DrawPolygonMode(),
-        selectedFeatureIndexes: [],
-        onEdit: ({ updatedData }) => setCommittedSafeZoneFeatures(updatedData),
-        pickable: true,
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
         getFillColor: [0, 255, 0, 100],
         getLineColor: [0, 255, 0, 200],
         getLineWidth: 2,
@@ -650,10 +467,6 @@ export default function App() {
 
 
   // --- Render ---
-<<<<<<< HEAD
->>>>>>> Stashed changes
-=======
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
   return (
     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
       <div
@@ -845,8 +658,6 @@ export default function App() {
             `}</style>
     </div>
   );
-<<<<<<< Updated upstream
-=======
 
   function getButtonStyle(isActive: boolean, isDisabled: boolean): React.CSSProperties {
     const activeBg = "linear-gradient(135deg, #3B82F6, #2563EB)";
@@ -875,33 +686,4 @@ export default function App() {
       opacity: isDisabled && !isActive ? 0.6 : 1,
     };
   }
->>>>>>> Stashed changes
-}
-
-function getButtonStyle(isActive: boolean, isDisabled: boolean): React.CSSProperties {
-    const activeBg = "linear-gradient(135deg, #3B82F6, #2563EB)";
-    const inactiveBg = "white";
-    const activeColor = "white";
-    const inactiveColor = "#1F2937";
-    const activeShadow = "0 2px 8px rgba(37, 99, 235, 0.3)";
-    const inactiveShadow = "0 1px 2px rgba(0, 0, 0, 0.05)";
-
-    return {
-      background: isActive ? activeBg : inactiveBg,
-      color: isActive ? activeColor : inactiveColor,
-      fontWeight: 500,
-      padding: "10px 14px",
-      borderRadius: "8px",
-      border: isActive ? "none" : "1px solid rgba(209, 213, 219, 0.8)",
-      cursor: isDisabled ? "default" : "pointer",
-      transition: "all 0.2s ease",
-      boxShadow: isActive ? activeShadow : inactiveShadow,
-      fontSize: "clamp(0.8rem, 1vw, 0.9rem)",
-      flexShrink: 0,
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      minWidth: "120px",
-      opacity: isDisabled && !isActive ? 0.6 : 1,
-    };
 }

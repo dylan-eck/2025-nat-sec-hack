@@ -182,24 +182,11 @@ async def find_path(request: PathRequest):
             print(msg)
             return PathResponse(path_found=False, message=msg)
 
-        # --- MODIFIED: Find shortest path to the NEAREST safe zone (based on centroid) --- 
+        # --- MODIFIED: Find shortest path to the NEAREST safe zone (based on centroid) ---
         print("Finding path to the nearest safe zone (via centroid node)...")
         if not request.safe_zones:
              raise HTTPException(status_code=400, detail="At least one safe zone must be provided.")
 
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-        # 5. Calculate shortest path
-        print(f"Finding path between {start_node} and {end_node}...")
-        path = None
-        try:
-            path = nx.shortest_path(G_temp, source=start_node, target=end_node, weight='weight')
-            print(f"Path found with {len(path)} nodes.")
-        except nx.NetworkXNoPath:
-            msg = f"No path found between the selected start and end points in the accessible graph."
-=======
-=======
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
         shortest_path_len = float('inf')
         final_target_node = None
         processed_safe_zones = 0
@@ -261,7 +248,7 @@ async def find_path(request: PathRequest):
             try:
                 # Calculate the actual path (list of nodes)
                 path_nodes = nx.shortest_path(G_temp, source=start_node, target=final_target_node, weight='weight')
-                
+
                 # Transform path nodes back to WGS84 coordinates
                 path_coords_wgs84 = []
                 for node in path_nodes:
@@ -271,16 +258,13 @@ async def find_path(request: PathRequest):
                         path_coords_wgs84.append([lon, lat])
                     else:
                         print(f"Warning: Node {node} from shortest path not found in node_points_base.")
-                
+
                 calculation_time = time.perf_counter() - request_start_time
                 msg = f"Path found to nearest safe zone in {calculation_time:.4f} seconds. Nodes: {len(path_coords_wgs84)}"
                 print(msg)
-<<<<<<< HEAD
-=======
-                print(f"DEBUG: Returning path type: {type(path_coords_wgs84)}, content: {path_coords_wgs84}") 
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
+                print(f"DEBUG: Returning path type: {type(path_coords_wgs84)}, content: {path_coords_wgs84}")
                 return PathResponse(path_found=True, path=path_coords_wgs84, message=msg)
-                
+
             except nx.NetworkXNoPath:
                 msg = f"Internal Error: No path exists from start node {start_node} to final target node {final_target_node}, even though length was calculated."
                 print(msg)
@@ -293,10 +277,6 @@ async def find_path(request: PathRequest):
             # This case means no path was found from the start node to *any* safe zone centroid node
             calculation_time = time.perf_counter() - request_start_time
             msg = f"Could not find a path from the start location to any of the provided safe zones' accessible nodes. Searched {len(request.safe_zones)} zones. Time: {calculation_time:.4f}s"
-<<<<<<< HEAD
->>>>>>> Stashed changes
-=======
->>>>>>> 12cee2812e3d4b246b2273dbf232310a4a147f35
             print(msg)
             return PathResponse(path_found=False, message=msg)
 

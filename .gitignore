@@ -45,3 +45,5 @@ __pycache__/
 env/
 venv/
 meme.txt
+__pycache__/
+
