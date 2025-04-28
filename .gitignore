@@ -45,5 +45,4 @@ __pycache__/
 env/
 venv/
 meme.txt
-__pycache__/
-
+src/backend/saved_zones.json
