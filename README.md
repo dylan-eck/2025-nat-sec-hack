@@ -2,7 +2,7 @@
     <img width="250" src="./assets/logo.png">
 </p>
 
-# GuardianGrid
+<h1 align="center">Guardian Grid</h1>
 
 [LinkedIn Post](https://www.linkedin.com/feed/update/urn:li:activity:7323027994569015298/) • [Demo Video](https://www.youtube.com/watch?v=pHRag0iRaTI) • [Hackathon Details](https://cerebralvalley.ai/e/national-security-hackathon-5a6fa1dc)
 

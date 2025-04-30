@@ -40,10 +40,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# custom
 public/region_road_-519005271989780755.geojson
 __pycache__/
 env/
 venv/
-meme.txt
 src/backend/saved_zones.json
 private/
+code_dump_*
