@@ -34,8 +34,8 @@ We are grateful for the guidance and support from mentors and organizers, includ
 <p align="center">
   <table>
     <tr>
-      <td><img src="./assets/team_1.png" height="350"/></td>
-      <td><img src="./assets/team_2.png" height="350"/></td>
+      <td><img src="./assets/team_1.png"/></td>
+      <td><img src="./assets/team_2.png"/></td>
     </tr>
   </table>
 </p>
