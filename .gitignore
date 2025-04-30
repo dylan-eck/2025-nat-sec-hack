@@ -46,3 +46,4 @@ env/
 venv/
 meme.txt
 src/backend/saved_zones.json
+private/

@@ -8,9 +8,9 @@
 
 ## About
 
-Guardian Grid SF is a smart city emergency evacuation tool that helps communities respond quickly and safely during major disasters. The system allows city administrators or emergency officials to mark danger zones, such as areas affected by natural disasters, and define safe zones directly on an interactive map. Advanced path finding algorithms are then used to generate and communicate the safest evacuation routes for residents, taking current hazards into account.
+Guardian Grid (SF) is a smart city emergency evacuation tool that helps communities respond quickly and safely during major disasters. The system allows city administrators or emergency officials to mark danger zones, such as areas affected by natural disasters, and define safe zones directly on an interactive map. Advanced path finding algorithms are then used to generate and communicate the safest evacuation routes for residents, taking current hazards into account.
 
-When an emergency takes place, officials can update danger and safe areas and immediately send alerts to residents' phones via text message. Each person receives a unique link to a web portal, which uses their current location to display a danger-aware route to safety and provides instant directions with Google Maps. As situations evolve, routes are recalculated in real time, and new alerts are sent to keep everyone updated and safe. Check out the demo for this project [HERE](https://www.youtube.com/watch?v=pHRag0iRaTI).
+When an emergency takes place, officials can update danger and safe areas and immediately send alerts to residents' phones via text message. Each person receives a link to a web portal, which uses their current location to display a danger-aware route to safety and provides instant directions with [Google Maps](https://www.google.com/maps/). As situations evolve, routes are recalculated in real time, and new alerts are sent to keep everyone updated and safe. Check out the demo for this project [HERE](https://www.youtube.com/watch?v=pHRag0iRaTI).
 
 <p align="center">
     <img width="500" src="./assets/demo_img.png">
@@ -18,7 +18,7 @@ When an emergency takes place, officials can update danger and safe areas and im
 
 In the current demonstration code, alerts are sent via SMS to a single phone number for demo and testing purposes. However, in a real deployment Guardian Grid SF would integrate with the [Wireless Emergency Alerts (WEA) system](https://www.fcc.gov/consumers/guides/wireless-emergency-alerts-wea) to broadcast evacuation alerts to all people in the affected city or region.
 
-While the present focus is on the San Francisco Bay Area, our vision is to expand Guardian Grid SF to other major cities around the world. Our goal is to provide a robust system for coordinated and data-driven evacuations so that every city can protect its people, minimize congestion, and respond quickly as emergencies unfold.
+While the present focus is on the San Francisco Bay Area, our vision is to expand Guardian Grid to other major cities around the world. Our goal is to provide a robust system for coordinated and data-driven evacuations so that every city can protect its people, minimize congestion, and respond quickly as emergencies unfold.
 
 ## Team Aspen
 
@@ -40,16 +40,32 @@ We are grateful for the guidance and support from mentors and organizers, includ
   </table>
 </p>
 
+## Hackathon Details
+
+<p align="center">
+    <img width="600" src="./assets/hackathon.png">
+</p>
+
+Guardian Grid (SF) was built at the 2nd annual **National Security Hackathon** (April 26-27, 2025), hosted by Cerebral Valley and Shield Capital in partnership with Stanford DEFCON. The event brought together technologists and engineers to build solutions for national security problem statements curated by US military stakeholders, with guidance from government, military, and startup mentors.
+
+- The weekend included a defense tech career fair and team-building at Stanford University, followed by 24 hours of hacking in San Francisco.
+- Sponsors and supporters included Shield Capital, In-Q-Tel, NATO Innovation Fund, Vannevar Labs, Scale AI, Groq, Windsurf, Anthropic, Microsoft, Maxar, Dedrone, Distributed Spectrum, and Code Metal.
+- Hackathon categories included Smart Cities, War Games, Maritime Pattern Analysis, Cybersecurity for AI Deployments, Radio Frequency Navigation, General National Security, and Hack A Refrigeration System.
+
+The main section of the hackathon had prizes that included included $3,000 and Starlink units for first place, $2,000 for second place, and $1,000 for third place. But there was a special, hidden, prize for a refrigeration challenge with a prize of $5,000.
+
+Our team entered both the **Smart Cities** and **Hack A Refrigeration System** challenges. Guardian Grid (SF) was our Smart Cities entry. We earned a $5,000 Special Prize and Honorable Mention for our technical work in the refrigeration challenge, and our Smart Cities solution received strong feedback from judges and peers alike.
+
+Judges and peers recognized Guardian Grid (SF) as an impactful response to a significant problem in emergency management, praising its creativity, practical approach, and the fact that it avoided simply using LLM technology as a catch-all solution. Although our Smart Cities project did not win a top-three prize due to time constraints from splitting resources between two challenges, the judges were impressed by its potential and relevance. Our team was honored to receive this recognition along with winning the **Hack A Refrigeration System** challenge.
+
+Find more details and reflections in our [LinkedIn post](https://www.linkedin.com/feed/update/urn:li:activity:7323027994569015298/) and checkout the photo gallery from the hackathon [here](https://cerebralvalley.pixieset.com/nationalsecurityhackathon/).
+
 ## GPS Data Sources
 
-For our pathfinding and mapping in the San Francisco Bay Area, we required precise and comprehensive roadway data. We initially experimented with both Google Maps API and Mapbox's API to retrieve this data. However, their licensing restrictions and functional limitations prevented us from obtaining or using the underlying routing graph in a way that matched our hackathon goals. Because of these constraints, we used open raw geographic datasets.
-
-**The GPS data for SF was gathered using these two sources:**
+For our path finding and mapping in the San Francisco Bay Area, we required precise and comprehensive roadway data. We initially experimented with both Google Maps API and Mapbox's API to retrieve this data. However, their licensing restrictions and functional limitations prevented us from obtaining or using the underlying routing graph in a way that matched our hackathon goals. Because of these constraints, we used open raw geographic datasets. We got this raw geographic data though these two open-source sources:
 
 - [San Francisco Bay Region Roadways (MTC Open Data Portal)](https://opendata.mtc.ca.gov/datasets/MTC::san-francisco-bay-region-roadways/about)
 - [Explore San Francisco Bay Region Roadways](https://opendata.mtc.ca.gov/datasets/MTC::san-francisco-bay-region-roadways/explore?location=37.799654%2C-122.077536%2C8.64)
-
-**About these datasets:**
 
 Linear features represent roadways for the San Francisco Bay Region. The feature set was assembled using all county-based 2021 TIGER/Line shapefiles by the Metropolitan Transportation Commission (MTC/ABAG). The dataset includes all primary, secondary, local neighborhood, and rural roads, city streets, vehicular trails, ramps, service drives, alleys, private roads, bike paths, bridle/horse paths, walkways, pedestrian trails, and stairways for the entire region.
 
@@ -58,24 +74,6 @@ Linear features represent roadways for the San Francisco Bay Region. The feature
 - The dataset includes attribute columns for identifying road type, jurisdiction, and more, supporting flexible routing and data analysis.
 
 You can read more about the licensing and data details at the [MTC dataset source](https://opendata.mtc.ca.gov/datasets/MTC::san-francisco-bay-region-roadways/about).
-
-## Hackathon Details
-
-<p align="center">
-    <img width="600" src="./assets/hackathon.png">
-</p>
-
-Guardian Grid SF was built at the 2nd annual **National Security Hackathon** (April 26-27, 2025), hosted by Cerebral Valley and Shield Capital in partnership with Stanford DEFCON. The event brought together technologists and engineers to build solutions for national security problem statements curated by US military stakeholders, with guidance from government, military, and startup mentors.
-
-- The weekend included a defense tech career fair and team-building at Stanford University, followed by 24 hours of hacking in San Francisco.
-- Sponsors and supporters included Shield Capital, In-Q-Tel, NATO Innovation Fund, Vannevar Labs, Scale AI, Groq, Windsurf, Anthropic, Microsoft, Maxar, Dedrone, Distributed Spectrum, and Code Metal.
-- Hackathon categories included Smart Cities, War Games, Maritime Pattern Analysis, Cybersecurity for AI Deployments, Radio Frequency Navigation, General National Security, and Hack A Refrigeration System.
-
-**Main hackathon prizes included $3,000 and Starlink units for first place, $2,000 for second place, and $1,000 for third place.**
-
-Our team entered both the **Smart Cities** and **Hack A Refrigeration System** challenges. Guardian Grid SF (this repository) was our Smart Cities entry. We earned a $5,000 Special Prize and Honorable Mention for our technical work in the refrigeration challenge, and our Smart Cities solution received strong feedback from judges and peers.
-
-Find more details and reflections in our [LinkedIn post](https://www.linkedin.com/feed/update/urn:li:activity:7323027994569015298/).
 
 ## How To Run
 
