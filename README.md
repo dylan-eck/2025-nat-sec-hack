@@ -1,5 +1,5 @@
 <p align="center">
-    <img width="250" src="./assets/logo.png">
+    <img width="300" src="./assets/logo.png">
 </p>
 
 <h1 align="center">Guardian Grid</h1>
@@ -114,9 +114,9 @@ You can read more about the licensing and data details at the [MTC dataset sourc
    cd -
    ```
 
-6. With everything set up, the final step is to run the app. You'll need two separate terminal windows or tabs, referred to as "Terminal #1" and "Terminal #2".
+6. With everything set up, the final step is to run the app. You'll need two separate terminal windows or tabs, referred to as **Terminal #1** and **Terminal #2**.
 
-7. In "Terminal #1", start the **backend** service:
+7. In **Terminal #1**, start the **backend** service:
 
    ```bash
    # go into the backend service directory
@@ -129,7 +129,7 @@ You can read more about the licensing and data details at the [MTC dataset sourc
    bash ./run.sh
    ```
 
-8. In "Terminal #2", start the **frontend** service:
+8. In **Terminal #2**, start the **frontend** service:
 
    ```bash
    yarn dev
@@ -137,4 +137,4 @@ You can read more about the licensing and data details at the [MTC dataset sourc
 
 9. With everything running, open your browser and go to: http://localhost:3000/
 
-10. When finished, close "Terminal #1" and "Terminal #2".
+10. When finished, close **Terminal #1** and **Terminal #2**.
